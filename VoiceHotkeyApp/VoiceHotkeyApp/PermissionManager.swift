@@ -1,6 +1,5 @@
 import Cocoa
 import AVFoundation
-import Speech
 
 class PermissionManager {
     static let shared = PermissionManager()
@@ -28,20 +27,6 @@ class PermissionManager {
         return status == .authorized
     }
     
-    // Request speech recognition permission
-    func requestSpeechRecognitionPermission(completion: @escaping (Bool) -> Void) {
-        SFSpeechRecognizer.requestAuthorization { status in
-            DispatchQueue.main.async {
-                completion(status == .authorized)
-            }
-        }
-    }
-    
-    // Check speech recognition permission status
-    func checkSpeechRecognitionPermission() -> Bool {
-        return SFSpeechRecognizer.authorizationStatus() == .authorized
-    }
-    
     // Check all permissions and show alerts if needed
     func checkAllPermissions() {
         // Check accessibility
@@ -56,16 +41,6 @@ class PermissionManager {
                 if !granted {
                     self.showAlert(title: "Microphone Permission Required",
                                  message: "Please grant microphone access in System Preferences to use voice input.")
-                }
-            }
-        }
-        
-        // Check speech recognition
-        if !checkSpeechRecognitionPermission() {
-            requestSpeechRecognitionPermission { granted in
-                if !granted {
-                    self.showAlert(title: "Speech Recognition Permission Required",
-                                 message: "Please grant speech recognition access to use voice-to-text features.")
                 }
             }
         }

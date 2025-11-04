@@ -1,34 +1,32 @@
 # Voice Hotkey macOS App
 
-A macOS menu bar application that provides voice-to-text functionality via global hotkeys.
+A macOS menu bar application that provides voice-to-text functionality via global hotkeys, using local Whisper for speech recognition and Llama 3 for intelligent text polishing.
 
 ## Features
 
 - **Menu Bar App**: Runs as a status bar item (NSStatusItem) for easy access
 - **Global Hotkey**: Register a rebindable global hotkey (default: Cmd+Shift+V)
-- **On-Device Speech Recognition**: Uses SFSpeechRecognizer with `requiresOnDeviceRecognition` for privacy
-- **Audio Capture**: Captures microphone input using AVAudioEngine.installTap
+- **Local Speech-to-Text**: Uses Whisper (via Ollama) for offline speech recognition
+- **Intelligent Text Polishing**: Automatically enhances transcripts with Llama 3 for proper formatting, grammar, and clarity
+- **Audio Capture**: Captures microphone input using AVAudioEngine
 - **Text Insertion**: Inserts recognized text at cursor position via NSPasteboard + synthetic Cmd+V (CGEvent)
-- **Permission Management**: Checks and requests accessibility, microphone, and speech recognition permissions
+- **Permission Management**: Checks and requests accessibility and microphone permissions
 - **Dual Modes**:
-  - **Push-to-Talk**: Press hotkey to start recording, automatically stops after speech
+  - **Push-to-Talk**: Press hotkey to start recording, automatically stops after timeout
   - **Toggle**: Press hotkey once to start, press again to stop recording
-- **Optional LLM Integration**: Use local Llama 3 via Ollama for advanced text processing:
-  - **Format Text**: Improve readability, fix capitalization, add punctuation
-  - **Correct Grammar**: Fix grammar and spelling errors
-  - **Smart Edit**: Improve writing style and clarity
+- **Fully Local Processing**: All AI processing (Whisper + LLM) runs locally via Ollama - no cloud, complete privacy
 
 ## Requirements
 
 - macOS 13.0 or later
 - Xcode 15.0 or later
 - Microphone access
-- Speech recognition permission
 - Accessibility permissions (for global hotkeys)
 
-### Optional (for LLM features)
+### Required for Voice Recognition
 - Ollama (https://ollama.ai)
-- Llama 3 model (~4.7GB)
+- Whisper model (~1.5GB) - for speech-to-text
+- Llama 3 model (~4.7GB) - for text polishing
 - See [LLM_SETUP.md](LLM_SETUP.md) for detailed setup instructions
 
 ## Building
@@ -49,36 +47,45 @@ The app will prompt for these permissions on first launch.
 
 ## Usage
 
-1. Launch the app - it will appear in the menu bar with a microphone icon
-2. Press Cmd+Shift+V (or your configured hotkey) to activate voice recognition
-3. Speak your text
-4. The recognized text will be inserted at your cursor position
+### First-Time Setup
+
+1. Install Ollama from https://ollama.ai
+2. Launch the Voice Hotkey App
+3. Click the menu bar icon → **Setup Models (Whisper + LLM)**
+4. Wait for models to download (~6GB total)
+5. Once status shows "System: Ready", you're good to go!
+
+### Daily Use
+
+1. Press Cmd+Shift+V (or your configured hotkey) to start recording
+2. Speak your text
+3. The app will:
+   - Transcribe with Whisper (speech-to-text)
+   - Polish with Llama 3 (formatting, grammar, clarity)
+   - Insert polished text at your cursor position
 
 ### Switching Modes
 
 Click the menu bar icon and select "Mode: Push-to-Talk" or "Mode: Toggle" to switch between recording modes.
 
-### Using LLM Processing (Optional)
+### How It Works
 
-After transcribing text, you can optionally enhance it using the local LLM:
+```
+Your Voice → Whisper (Transcription) → Llama 3 (Polishing) → Polished Text Inserted
+```
 
-1. Click the menu bar icon
-2. Select **LLM Processing** → choose an option:
-   - **Format Text** (Cmd+Shift+F): Improve readability and punctuation
-   - **Correct Grammar** (Cmd+Shift+G): Fix grammar and spelling
-   - **Smart Edit** (Cmd+Shift+E): Enhance writing style
-
-**Note**: LLM features require Ollama and Llama 3. See [LLM_SETUP.md](LLM_SETUP.md) for setup instructions.
+All processing happens locally on your Mac. No internet required after setup.
 
 ## Architecture
 
 - **AppDelegate.swift**: Main application entry point
 - **StatusBarController.swift**: Manages the menu bar interface
 - **HotkeyManager.swift**: Handles global hotkey registration and events
-- **VoiceRecognitionManager.swift**: Manages audio capture and speech recognition
+- **VoiceRecognitionManager.swift**: Orchestrates recording → Whisper → LLM pipeline
+- **WhisperManager.swift**: Manages Whisper speech-to-text via Ollama
+- **LLMManager.swift**: Manages Llama 3 text polishing via Ollama
 - **PermissionManager.swift**: Handles permission checks and requests
 - **PreferencesWindow.swift**: Preferences UI
-- **LLMManager.swift**: Optional LLM integration via Ollama/Llama 3
 
 ## License
 

@@ -1,6 +1,5 @@
 import Foundation
 import AVFoundation
-import Speech
 import Cocoa
 
 enum RecognitionMode {
@@ -12,9 +11,8 @@ class VoiceRecognitionManager: NSObject {
     static let shared = VoiceRecognitionManager()
     
     private var audioEngine: AVAudioEngine?
-    private var speechRecognizer: SFSpeechRecognizer?
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
+    private var audioFile: AVAudioFile?
+    private var tempAudioURL: URL?
     
     private var isRecording = false
     private var recognitionMode: RecognitionMode = .pushToTalk
@@ -28,13 +26,6 @@ class VoiceRecognitionManager: NSObject {
     
     private override init() {
         super.init()
-        setupSpeechRecognizer()
-    }
-    
-    private func setupSpeechRecognizer() {
-        // Use on-device recognition
-        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
-        speechRecognizer?.defaultTaskHint = .dictation
     }
     
     func setRecognitionMode(_ mode: RecognitionMode) {
@@ -50,22 +41,20 @@ class VoiceRecognitionManager: NSObject {
         guard !isRecording else { return }
         
         // Check permissions
-        guard PermissionManager.shared.checkMicrophonePermission(),
-              PermissionManager.shared.checkSpeechRecognitionPermission() else {
-            print("Missing permissions for voice recognition")
+        guard PermissionManager.shared.checkMicrophonePermission() else {
+            print("Missing microphone permission")
             return
         }
         
         do {
-            // Create and configure recognition request
-            recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-            guard let recognitionRequest = recognitionRequest else {
-                print("Unable to create recognition request")
+            // Create temporary file for audio recording
+            let tempDir = FileManager.default.temporaryDirectory
+            tempAudioURL = tempDir.appendingPathComponent("voice_recording_\(UUID().uuidString).wav")
+            
+            guard let tempURL = tempAudioURL else {
+                print("Unable to create temp file URL")
                 return
             }
-            
-            recognitionRequest.shouldReportPartialResults = true
-            recognitionRequest.requiresOnDeviceRecognition = true
             
             // Create audio engine and input node
             audioEngine = AVAudioEngine()
@@ -77,40 +66,38 @@ class VoiceRecognitionManager: NSObject {
             let inputNode = audioEngine.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
             
-            // Install tap on audio engine
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-                recognitionRequest.append(buffer)
+            // Create audio file for recording
+            audioFile = try AVAudioFile(forWriting: tempURL, 
+                                       settings: recordingFormat.settings,
+                                       commonFormat: .pcmFormatInt16,
+                                       interleaved: true)
+            
+            // Install tap to write audio to file
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { [weak self] buffer, _ in
+                guard let self = self, let audioFile = self.audioFile else { return }
+                do {
+                    try audioFile.write(from: buffer)
+                } catch {
+                    print("Error writing audio buffer: \(error)")
+                }
             }
             
             // Start audio engine
             audioEngine.prepare()
             try audioEngine.start()
             
-            // Start recognition task
-            recognitionTask = speechRecognizer?.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-                guard let self = self else { return }
-                
-                if let result = result {
-                    let transcription = result.bestTranscription.formattedString
-                    
-                    if result.isFinal {
-                        self.onFinalResult?(transcription)
-                        if self.recognitionMode == .pushToTalk {
-                            self.stopRecording()
-                        }
-                    } else {
-                        self.onPartialResult?(transcription)
-                    }
-                }
-                
-                if error != nil {
-                    self.stopRecording()
-                }
-            }
-            
             isRecording = true
             recordingStartTime = Date()
             onRecognitionStart?()
+            
+            // Auto-stop for push-to-talk mode
+            if recognitionMode == .pushToTalk {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
+                    if self?.isRecording == true {
+                        self?.stopRecording()
+                    }
+                }
+            }
             
         } catch {
             print("Error starting recording: \(error.localizedDescription)")
@@ -126,17 +113,57 @@ class VoiceRecognitionManager: NSObject {
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         
-        // Cancel recognition request
-        recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
-        
-        recognitionRequest = nil
-        recognitionTask = nil
         audioEngine = nil
+        audioFile = nil
         
         isRecording = false
         recordingStartTime = nil
         onRecognitionStop?()
+        
+        // Process the recorded audio with Whisper and then LLM
+        if let audioURL = tempAudioURL {
+            processRecordedAudio(fileURL: audioURL)
+        }
+    }
+    
+    // Process recorded audio through Whisper → LLM pipeline
+    private func processRecordedAudio(fileURL: URL) {
+        // Step 1: Transcribe with Whisper
+        WhisperManager.shared.transcribeAudio(fileURL: fileURL) { [weak self] result in
+            guard let self = self else { return }
+            
+            switch result {
+            case .success(let transcription):
+                print("Whisper transcription: \(transcription)")
+                
+                // Step 2: Process with LLM for polishing
+                self.processWithLLM(transcription)
+                
+            case .failure(let error):
+                print("Transcription error: \(error.localizedDescription)")
+                self.onFinalResult?("Error: \(error.localizedDescription)")
+            }
+            
+            // Clean up temp file
+            try? FileManager.default.removeItem(at: fileURL)
+            self.tempAudioURL = nil
+        }
+    }
+    
+    // Process text with LLM for polishing
+    private func processWithLLM(_ text: String) {
+        LLMManager.shared.processText(text, type: .smartEdit) { [weak self] result in
+            switch result {
+            case .success(let polishedText):
+                print("LLM polished: \(polishedText)")
+                self?.onFinalResult?(polishedText)
+                
+            case .failure(let error):
+                print("LLM error: \(error.localizedDescription)")
+                // Fallback to original transcription if LLM fails
+                self?.onFinalResult?(text)
+            }
+        }
     }
     
     // Toggle recording (for toggle mode)
