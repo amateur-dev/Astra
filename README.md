@@ -6,7 +6,7 @@ A macOS menu bar application that provides voice-to-text functionality via globa
 
 - **Menu Bar App**: Runs as a status bar item (NSStatusItem) for easy access
 - **Global Hotkey**: Register a rebindable global hotkey (default: Cmd+Shift+V)
-- **Local Speech-to-Text**: Uses Whisper (via Ollama) for offline speech recognition
+- **Local Speech-to-Text**: Uses Whisper.cpp with OpenAI's Whisper model for offline speech recognition
 - **Intelligent Text Polishing**: Automatically enhances transcripts with Llama 3 for proper formatting, grammar, and clarity
 - **Audio Capture**: Captures microphone input using AVAudioEngine
 - **Text Insertion**: Inserts recognized text at cursor position via NSPasteboard + synthetic Cmd+V (CGEvent)

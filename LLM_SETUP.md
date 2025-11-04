@@ -4,7 +4,7 @@ This guide explains how to set up and use the optional LLM (Large Language Model
 
 ## Overview
 
-The app now includes optional LLM-based text processing powered by Ollama and Llama 3. This feature is **completely optional** and the app works perfectly fine without it using Apple's on-device speech recognition.
+The app uses **Whisper.cpp** for local speech-to-text transcription and includes optional LLM-based text processing powered by Ollama and Llama 3. The LLM feature is **completely optional** and enhances the transcribed text for better readability.
 
 ## Why LLM Integration?
 
@@ -16,61 +16,74 @@ The LLM integration provides advanced text processing capabilities:
 
 ## Default Behavior
 
-By default, the app uses Apple's SFSpeechRecognizer for speech-to-text conversion:
+By default, the app uses **Whisper.cpp** for local speech-to-text conversion:
 - ✅ Completely offline
 - ✅ Private and secure
-- ✅ Fast and reliable
-- ✅ No setup required
+- ✅ High accuracy with OpenAI's Whisper model
+- ✅ One-time setup to download the model
 
-The LLM is **only invoked on-demand** when you explicitly choose to process the transcribed text.
+The LLM is **invoked automatically** after transcription to polish the text (smart editing), but can also be used on-demand for other processing tasks.
 
 ## Setup Instructions
 
-### Step 1: Install Ollama
+### Step 1: Setup Whisper (Speech-to-Text)
+
+The app will automatically download Whisper.cpp when you first use it:
+
+1. Launch Voice Hotkey App
+2. Click the menu bar icon
+3. Select **LLM Processing** → **Setup Whisper**
+4. The app will download the Whisper binary (~50MB) and base model (~140MB)
+5. Wait for download to complete
+
+### Step 2: Install Ollama (Text Processing)
 
 1. Visit https://ollama.ai
 2. Download Ollama for macOS
 3. Install the application
 4. Start Ollama (it runs in the background)
 
-### Step 2: Download Llama 3 Model
+### Step 3: Download Llama 3 Model
 
 You can download the model in two ways:
 
 #### Option A: Through the App (Recommended)
-1. Launch Voice Hotkey App
-2. Click the menu bar icon
-3. Select **LLM Processing** → **Setup LLM (Ollama)**
-4. Follow the prompts
-5. The app will automatically download Llama 3 (~4.7GB)
+1. Click the menu bar icon
+2. Select **LLM Processing** → **Setup LLM (Ollama)**
+3. Follow the prompts
+4. The app will automatically download Llama 3 (~4.7GB)
 
 #### Option B: Via Terminal
 ```bash
 ollama pull llama3
 ```
 
-### Step 3: Verify Installation
+### Step 4: Verify Installation
 
 1. Click the menu bar icon
 2. Check the **LLM Processing** submenu
-3. The status should show: **"LLM: Ready (Llama 3)"**
+3. Status should show:
+   - **"Whisper: Ready"**
+   - **"LLM: Ready (Llama 3)"**
 
 ## Usage
 
 ### Basic Workflow
 
-1. **Transcribe speech** (as usual):
-   - Press Cmd+Shift+V
-   - Speak your text
-   - Text is inserted at cursor
+1. **Transcribe and process speech** (automatic):
+- Press Cmd+Shift+V
+- Speak your text
+- Whisper transcribes the audio
+    - LLM automatically applies smart editing
+    - Polished text is inserted at cursor
 
-2. **Process with LLM** (optional):
-   - Click menu bar icon → **LLM Processing**
-   - Choose:
-     - **Format Text** (Cmd+Shift+F)
-     - **Correct Grammar** (Cmd+Shift+G)
-     - **Smart Edit** (Cmd+Shift+E)
-   - The processed text replaces the original
+2. **Additional processing** (optional):
+- Click menu bar icon → **LLM Processing**
+- Choose additional processing:
+- **Format Text** (Cmd+Shift+F) - For additional formatting
+  - **Correct Grammar** (Cmd+Shift+G) - For grammar correction
+      - **Smart Edit** (Cmd+Shift+E) - For re-processing with different style
+    - The processed text replaces the original
 
 ### Keyboard Shortcuts
 
@@ -83,21 +96,19 @@ ollama pull llama3
 ### Architecture
 
 ```
-Speech Input → SFSpeechRecognizer (on-device) → Text Inserted
-                                                      ↓
-                                              (User chooses)
-                                                      ↓
-                                     LLM Processing (Ollama/Llama 3)
-                                                      ↓
-                                            Enhanced Text Inserted
+Speech Input → Audio Recording → Whisper.cpp (local) → Raw Transcription
+      ↓
+LLM Processing (Ollama/Llama 3)
+      ↓
+         Smart Edited Text Inserted
 ```
 
 ### Privacy & Offline Operation
 
-- **Speech Recognition**: Always offline (Apple's on-device recognition)
+- **Speech Recognition**: Always offline (Whisper.cpp runs locally)
 - **LLM Processing**: Runs locally via Ollama (localhost:11434)
 - **No Cloud**: No data sent to external servers
-- **Optional**: LLM is only used when you explicitly request it
+- **Automatic**: LLM processes all transcriptions by default for better quality
 
 ## Example Use Cases
 
@@ -140,12 +151,12 @@ Result: "They're going to the store and they're buying some groceries for their 
 
 ## Performance
 
-### Speech Recognition (Always Available)
-- Latency: 1-2 seconds
-- CPU: 5-15%
-- Memory: ~70MB
+### Speech Recognition (Whisper.cpp)
+- Latency: 2-5 seconds (depending on audio length)
+- CPU: 50-100% (during transcription)
+- Memory: ~200-500MB (model loaded)
 
-### LLM Processing (When Used)
+### LLM Processing (Ollama/Llama 3)
 - Latency: 2-10 seconds (depending on text length)
 - CPU: 50-100% (during processing)
 - Memory: ~2-4GB (when model loaded)
