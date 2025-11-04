@@ -15,6 +15,7 @@
 		AA00000B0000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA00000C0000000000000001 /* Assets.xcassets */; };
 		AA00000D0000000000000001 /* PreferencesWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000E0000000000000001 /* PreferencesWindow.swift */; };
 		AA0000110000000000000002 /* LLMManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000120000000000000002 /* LLMManager.swift */; };
+		AA0000130000000000000003 /* WhisperManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000140000000000000003 /* WhisperManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +30,7 @@
 		AA00000F0000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA0000100000000000000001 /* VoiceHotkeyApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VoiceHotkeyApp.entitlements; sourceTree = "<group>"; };
 		AA0000120000000000000002 /* LLMManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMManager.swift; sourceTree = "<group>"; };
+		AA0000140000000000000003 /* WhisperManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -60,6 +62,7 @@
 				AA00000A0000000000000001 /* PermissionManager.swift */,
 				AA00000E0000000000000001 /* PreferencesWindow.swift */,
 				AA0000120000000000000002 /* LLMManager.swift */,
+				AA0000140000000000000003 /* WhisperManager.swift */,
 				AA00000C0000000000000001 /* Assets.xcassets */,
 				AA00000F0000000000000001 /* Info.plist */,
 				AA0000100000000000000001 /* VoiceHotkeyApp.entitlements */,
@@ -151,6 +154,7 @@
 				AA0000090000000000000001 /* PermissionManager.swift in Sources */,
 				AA00000D0000000000000001 /* PreferencesWindow.swift in Sources */,
 				AA0000110000000000000002 /* LLMManager.swift in Sources */,
+				AA0000130000000000000003 /* WhisperManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

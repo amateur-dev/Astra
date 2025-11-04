@@ -46,6 +46,18 @@ class StatusBarController {
         
         menu?.addItem(NSMenuItem.separator())
         
+        // System status
+        llmStatusMenuItem = NSMenuItem(title: "System: Checking...", action: nil, keyEquivalent: "")
+        llmStatusMenuItem?.isEnabled = false
+        menu?.addItem(llmStatusMenuItem!)
+        
+        menu?.addItem(NSMenuItem.separator())
+        
+        // Setup menu item
+        let setupItem = NSMenuItem(title: "Setup Models (Whisper + LLM)", action: #selector(setupModels), keyEquivalent: "")
+        setupItem.target = self
+        menu?.addItem(setupItem)
+        
         // Preferences
         let preferencesItem = NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ",")
         preferencesItem.target = self
@@ -55,41 +67,6 @@ class StatusBarController {
         let permissionsItem = NSMenuItem(title: "Check Permissions", action: #selector(checkPermissions), keyEquivalent: "")
         permissionsItem.target = self
         menu?.addItem(permissionsItem)
-        
-        menu?.addItem(NSMenuItem.separator())
-        
-        // LLM Processing submenu
-        let llmMenu = NSMenu()
-        
-        llmStatusMenuItem = NSMenuItem(title: "LLM: Checking...", action: nil, keyEquivalent: "")
-        llmStatusMenuItem?.isEnabled = false
-        
-        let formatItem = NSMenuItem(title: "Format Text", action: #selector(formatWithLLM), keyEquivalent: "f")
-        formatItem.target = self
-        formatItem.keyEquivalentModifierMask = [.command, .shift]
-        
-        let grammarItem = NSMenuItem(title: "Correct Grammar", action: #selector(correctGrammarWithLLM), keyEquivalent: "g")
-        grammarItem.target = self
-        grammarItem.keyEquivalentModifierMask = [.command, .shift]
-        
-        let smartEditItem = NSMenuItem(title: "Smart Edit", action: #selector(smartEditWithLLM), keyEquivalent: "e")
-        smartEditItem.target = self
-        smartEditItem.keyEquivalentModifierMask = [.command, .shift]
-        
-        let setupItem = NSMenuItem(title: "Setup LLM (Ollama)", action: #selector(setupLLM), keyEquivalent: "")
-        setupItem.target = self
-        
-        llmMenu.addItem(llmStatusMenuItem!)
-        llmMenu.addItem(NSMenuItem.separator())
-        llmMenu.addItem(formatItem)
-        llmMenu.addItem(grammarItem)
-        llmMenu.addItem(smartEditItem)
-        llmMenu.addItem(NSMenuItem.separator())
-        llmMenu.addItem(setupItem)
-        
-        let llmMenuItem = NSMenuItem(title: "LLM Processing", action: nil, keyEquivalent: "")
-        llmMenuItem.submenu = llmMenu
-        menu?.addItem(llmMenuItem)
         
         menu?.addItem(NSMenuItem.separator())
         
@@ -110,40 +87,47 @@ class StatusBarController {
         }
         
         voiceManager.onRecognitionStop = { [weak self] in
-            self?.updateStatus("Ready")
-            self?.updateIcon(recording: false)
-        }
-        
-        voiceManager.onPartialResult = { text in
-            print("Partial: \(text)")
+            self?.updateStatus("Transcribing with Whisper...")
         }
         
         voiceManager.onFinalResult = { [weak self] text in
-            print("Final: \(text)")
+            print("Final polished text: \(text)")
+            self?.updateStatus("Ready")
+            self?.updateIcon(recording: false)
             self?.lastTranscribedText = text
             self?.insertText(text)
+        }
+        
+        // Setup Whisper callbacks
+        let whisperManager = WhisperManager.shared
+        
+        whisperManager.onTranscriptionStart = { [weak self] in
+            self?.updateStatus("Transcribing with Whisper...")
+        }
+        
+        whisperManager.onTranscriptionComplete = { [weak self] text in
+            self?.updateStatus("Polishing with LLM...")
+        }
+        
+        whisperManager.onTranscriptionError = { [weak self] error in
+            self?.updateStatus("Transcription Error")
+            self?.updateIcon(recording: false)
+            self?.showAlert(title: "Transcription Error", message: error)
         }
         
         // Setup LLM callbacks
         let llmManager = LLMManager.shared
         
         llmManager.onProcessingStart = { [weak self] in
-            self?.updateStatus("Processing with LLM...")
-        }
-        
-        llmManager.onProcessingComplete = { [weak self] processedText in
-            self?.updateStatus("Ready")
-            self?.lastTranscribedText = processedText
-            self?.insertText(processedText)
+            self?.updateStatus("Polishing with LLM...")
         }
         
         llmManager.onProcessingError = { [weak self] error in
             self?.updateStatus("LLM Error")
-            self?.showAlert(title: "LLM Processing Error", message: error)
         }
         
-        // Check LLM status
-        updateLLMStatus()
+        // Check system status
+        updateSystemStatus()
     }
     
     private func registerHotkey() {
@@ -234,86 +218,80 @@ class StatusBarController {
         VoiceRecognitionManager.shared.stopRecording()
     }
     
-    // MARK: - LLM Processing Methods
+    // MARK: - Setup Methods
     
-    @objc private func formatWithLLM() {
-        processWithLLM(type: .format)
-    }
-    
-    @objc private func correctGrammarWithLLM() {
-        processWithLLM(type: .grammarCorrect)
-    }
-    
-    @objc private func smartEditWithLLM() {
-        processWithLLM(type: .smartEdit)
-    }
-    
-    private func processWithLLM(type: LLMProcessingType) {
-        guard !lastTranscribedText.isEmpty else {
-            showAlert(title: "No Text Available", message: "Please transcribe some text first before using LLM processing.")
+    @objc private func setupModels() {
+        let whisperStatus = WhisperManager.shared.getStatus()
+        let llmStatus = LLMManager.shared.getStatus()
+        
+        if !whisperStatus.available || !llmStatus.available {
+            showAlert(title: "Install Ollama", 
+                     message: "Please install Ollama from https://ollama.ai\n\nAfter installation:\n1. Start Ollama\n2. Return to this menu and select 'Setup Models' again")
             return
         }
         
-        let status = LLMManager.shared.getStatus()
-        guard status.available else {
-            showAlert(title: "Ollama Not Available", message: "Ollama is not installed or not running. Please install Ollama and start it, then use 'Setup LLM' from the menu.")
+        if whisperStatus.modelDownloaded && llmStatus.modelDownloaded {
+            showAlert(title: "Models Ready", message: "Whisper and Llama 3 are already downloaded and ready to use!")
             return
         }
         
-        guard status.modelDownloaded else {
-            showAlert(title: "Model Not Downloaded", message: "Llama 3 model is not downloaded. Please use 'Setup LLM' from the menu to download it.")
-            return
-        }
-        
-        LLMManager.shared.processText(lastTranscribedText, type: type) { result in
-            switch result {
-            case .success(_):
-                // Text is automatically inserted via callback
-                break
-            case .failure(let error):
-                DispatchQueue.main.async { [weak self] in
-                    self?.showAlert(title: "Processing Failed", message: error.localizedDescription)
+        // Download models sequentially
+        if !whisperStatus.modelDownloaded {
+            updateStatus("Downloading Whisper model...")
+            
+            WhisperManager.shared.downloadModel { [weak self] success, message in
+                DispatchQueue.main.async {
+                    if success {
+                        // Now download LLM if needed
+                        if !llmStatus.modelDownloaded {
+                            self?.downloadLLMModel()
+                        } else {
+                            self?.updateStatus("Ready")
+                            self?.updateSystemStatus()
+                            self?.showAlert(title: "Success", message: "Whisper model downloaded successfully!")
+                        }
+                    } else {
+                        self?.updateStatus("Ready")
+                        self?.showAlert(title: "Error", message: message)
+                    }
                 }
             }
+        } else if !llmStatus.modelDownloaded {
+            downloadLLMModel()
         }
     }
     
-    @objc private func setupLLM() {
-        let status = LLMManager.shared.getStatus()
-        
-        if !status.available {
-            showAlert(title: "Install Ollama", 
-                     message: "Please install Ollama from https://ollama.ai\n\nAfter installation:\n1. Start Ollama\n2. Return to this menu and select 'Setup LLM' again")
-            return
-        }
-        
-        if status.modelDownloaded {
-            showAlert(title: "LLM Ready", message: "Llama 3 is already downloaded and ready to use!")
-            return
-        }
-        
+    private func downloadLLMModel() {
         updateStatus("Downloading Llama 3...")
         
         LLMManager.shared.downloadModel { [weak self] success, message in
             DispatchQueue.main.async {
                 self?.updateStatus("Ready")
-                self?.updateLLMStatus()
+                self?.updateSystemStatus()
                 self?.showAlert(title: success ? "Success" : "Error", message: message)
             }
         }
     }
     
-    private func updateLLMStatus() {
+    private func updateSystemStatus() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            let status = LLMManager.shared.getStatus()
+            let whisperStatus = WhisperManager.shared.getStatus()
+            let llmStatus = LLMManager.shared.getStatus()
             
             let statusText: String
-            if status.available && status.modelDownloaded {
-                statusText = "LLM: Ready (Llama 3)"
-            } else if status.available {
-                statusText = "LLM: Available (Model not downloaded)"
+            if whisperStatus.available && whisperStatus.modelDownloaded && 
+               llmStatus.available && llmStatus.modelDownloaded {
+                statusText = "System: Ready (Whisper + Llama 3)"
+            } else if whisperStatus.available && llmStatus.available {
+                if !whisperStatus.modelDownloaded && !llmStatus.modelDownloaded {
+                    statusText = "System: Models not downloaded"
+                } else if !whisperStatus.modelDownloaded {
+                    statusText = "System: Whisper not downloaded"
+                } else {
+                    statusText = "System: LLM not downloaded"
+                }
             } else {
-                statusText = "LLM: Not Available"
+                statusText = "System: Ollama not available"
             }
             
             self?.llmStatusMenuItem?.title = statusText
