@@ -1,7 +1,6 @@
 import Cocoa
 import os.log
 
-@main
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusBarController: StatusBarController?
     private let logger = OSLog(subsystem: "com.voicehotkey.app", category: "AppDelegate")
