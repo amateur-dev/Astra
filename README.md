@@ -1,0 +1,1 @@
+# local-hotkey-voice-mac-app
