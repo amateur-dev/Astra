@@ -1,3 +1,32 @@
+# Voice Hotkey — Electron rewrite (MVP)
+
+This repo was replaced with a minimal Electron-based MVP per user request. It provides a tray app that appears in the Dock and supports a global hotkey (Cmd/Ctrl+Shift+R) to toggle a recording state.
+
+Quick start
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Run in development:
+
+```bash
+npm run start
+```
+
+What next (baby steps)
+
+- Add audio recording in the renderer (getUserMedia) and save WAV files.
+- Add a Node worker that runs `whisper.cpp` on saved WAVs and returns transcripts.
+- Optionally wire Ollama polishing (HTTP to localhost:11434) behind a setting.
+- Add paste-to-app via clipboard + simulated paste.
+- Build DMG via `npm run dist` (requires macOS and Xcode tools).
+
+Notes
+
+- The repository `.git` metadata has been preserved. The previous Swift macOS app code was removed at your request.
 # Voice Hotkey macOS App
 
 A macOS menu bar application that provides voice-to-text functionality via global hotkeys, using local Whisper for speech recognition and Llama 3 for intelligent text polishing.
