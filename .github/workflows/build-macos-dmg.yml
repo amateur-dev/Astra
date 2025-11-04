@@ -17,7 +17,8 @@ jobs:
       - name: Build VoiceHotkeyApp (Release)
         run: |
           set -euo pipefail
-          PROJECT=VoiceHotkeyApp.xcodeproj
+          # path to the Xcode project relative to repository root
+          PROJECT=VoiceHotkeyApp/VoiceHotkeyApp.xcodeproj
           SCHEME=VoiceHotkeyApp
           BUILD_DIR="$PWD/build"
 
