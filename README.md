@@ -13,6 +13,10 @@ A macOS menu bar application that provides voice-to-text functionality via globa
 - **Dual Modes**:
   - **Push-to-Talk**: Press hotkey to start recording, automatically stops after speech
   - **Toggle**: Press hotkey once to start, press again to stop recording
+- **Optional LLM Integration**: Use local Llama 3 via Ollama for advanced text processing:
+  - **Format Text**: Improve readability, fix capitalization, add punctuation
+  - **Correct Grammar**: Fix grammar and spelling errors
+  - **Smart Edit**: Improve writing style and clarity
 
 ## Requirements
 
@@ -21,6 +25,11 @@ A macOS menu bar application that provides voice-to-text functionality via globa
 - Microphone access
 - Speech recognition permission
 - Accessibility permissions (for global hotkeys)
+
+### Optional (for LLM features)
+- Ollama (https://ollama.ai)
+- Llama 3 model (~4.7GB)
+- See [LLM_SETUP.md](LLM_SETUP.md) for detailed setup instructions
 
 ## Building
 
@@ -49,6 +58,18 @@ The app will prompt for these permissions on first launch.
 
 Click the menu bar icon and select "Mode: Push-to-Talk" or "Mode: Toggle" to switch between recording modes.
 
+### Using LLM Processing (Optional)
+
+After transcribing text, you can optionally enhance it using the local LLM:
+
+1. Click the menu bar icon
+2. Select **LLM Processing** → choose an option:
+   - **Format Text** (Cmd+Shift+F): Improve readability and punctuation
+   - **Correct Grammar** (Cmd+Shift+G): Fix grammar and spelling
+   - **Smart Edit** (Cmd+Shift+E): Enhance writing style
+
+**Note**: LLM features require Ollama and Llama 3. See [LLM_SETUP.md](LLM_SETUP.md) for setup instructions.
+
 ## Architecture
 
 - **AppDelegate.swift**: Main application entry point
@@ -57,6 +78,7 @@ Click the menu bar icon and select "Mode: Push-to-Talk" or "Mode: Toggle" to swi
 - **VoiceRecognitionManager.swift**: Manages audio capture and speech recognition
 - **PermissionManager.swift**: Handles permission checks and requests
 - **PreferencesWindow.swift**: Preferences UI
+- **LLMManager.swift**: Optional LLM integration via Ollama/Llama 3
 
 ## License
 
