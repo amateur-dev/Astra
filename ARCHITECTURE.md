@@ -2,7 +2,7 @@
 
 ## Overview
 
-Voice Hotkey App is a macOS menu bar application that provides system-wide voice-to-text functionality through global hotkeys. The app uses on-device speech recognition for privacy and synthetic keyboard events for text insertion.
+Voice Hotkey App is a macOS menu bar application that provides system-wide voice-to-text functionality through global hotkeys. The app uses local Whisper.cpp for speech recognition and optional LLM processing for text enhancement, all running offline for privacy.
 
 ## System Architecture
 
@@ -28,7 +28,8 @@ Voice Hotkey App is a macOS menu bar application that provides system-wide voice
 │  ┌──────▼────────────────┴────────────┐                    │
 │  │    VoiceRecognitionManager         │                    │
 │  │  - Audio capture via installTap    │                    │
-│  │  - SFSpeechRecognizer (on-device)  │                    │
+│  │  - WhisperManager (Whisper.cpp)    │                    │
+│  │  - LLMManager (Ollama/Llama 3)     │                    │
 │  │  - Text insertion pipeline         │                    │
 │  └──────┬─────────────────────────────┘                    │
 │         │                                                    │
@@ -42,7 +43,7 @@ Voice Hotkey App is a macOS menu bar application that provides system-wide voice
 │  │           PermissionManager                     │        │
 │  │  - Accessibility (AXIsProcessTrusted)          │        │
 │  │  - Microphone (AVCaptureDevice)                │        │
-│  │  - Speech Recognition (SFSpeechRecognizer)     │        │
+│  │  - No speech recognition permissions needed    │        │
 │  └────────────────────────────────────────────────┘        │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
@@ -104,26 +105,28 @@ Voice Hotkey App is a macOS menu bar application that provides system-wide voice
 - Hotkey must be unique system-wide
 
 ### VoiceRecognitionManager
-**Purpose:** Audio capture and speech recognition
+**Purpose:** Audio capture, speech recognition, and text processing
 
 **Responsibilities:**
 - Manage audio engine lifecycle
-- Capture microphone input
-- Perform speech recognition (on-device)
-- Insert recognized text at cursor
+- Capture microphone input to WAV file
+- Coordinate Whisper transcription
+- Process text with LLM for enhancement
+- Insert polished text at cursor
 - Support two recognition modes
 
 **Key APIs:**
 - `AVAudioEngine` - Audio capture
 - `AVAudioEngine.inputNode.installTap()` - Buffer-level access
-- `SFSpeechAudioBufferRecognitionRequest` - Recognition request
-- `SFSpeechRecognizer.recognitionTask()` - Async recognition
+- `AVAudioFile` - WAV file writing
+- `Process` - Subprocess execution for Whisper.cpp
+- `LLMManager` - Text enhancement via Ollama
 - `NSPasteboard` - Clipboard operations
 - `CGEvent` - Synthetic keyboard events
 
 **Audio Pipeline:**
 ```
-Microphone → AVAudioEngine → installTap(buffer) → SFSpeechAudioBufferRecognitionRequest → SFSpeechRecognizer → Results
+Microphone → AVAudioEngine → installTap(buffer) → AVAudioFile (WAV) → WhisperManager → Whisper.cpp → Raw Text → LLMManager → Llama 3 → Polished Text
 ```
 
 **Recognition Modes:**
@@ -199,20 +202,28 @@ App Launch → Check all permissions → Missing? → Request → Show alert if 
 3. HotkeyManager calls callback → StatusBarController.handleHotkey()
 4. StatusBarController → VoiceRecognitionManager.startRecording()
 5. VoiceRecognitionManager checks permissions
-6. Audio engine starts, tap installed
-7. Speech recognizer begins listening
-8. UI updates to "Recording..."
-9. After 5s or speech end → stopRecording() automatically
-10. Final result → insertText()
-11. Text appears at cursor
+6. Audio engine starts, tap installed, recording to WAV file
+7. UI updates to "Recording..."
+8. After 10s → stopRecording() automatically
+9. Audio file passed to WhisperManager.transcribeAudio()
+10. Whisper.cpp transcribes audio to text
+11. Raw transcription passed to LLMManager.processText() with smartEdit
+12. Llama 3 enhances the text
+13. Polished text → insertText()
+14. Text appears at cursor
 ```
 
 ### Recording Activation (Toggle)
 ```
 1. User presses Cmd+Shift+V (first time)
-2-8. Same as push-to-talk
-9. Recording continues until user presses hotkey again
-10-11. Same as push-to-talk
+2-7. Same as push-to-talk
+8. Recording continues until user presses hotkey again
+9. Audio file passed to WhisperManager.transcribeAudio()
+10. Whisper.cpp transcribes audio to text
+11. Raw transcription passed to LLMManager.processText() with smartEdit
+12. Llama 3 enhances the text
+13. Polished text → insertText()
+14. Text appears at cursor
 ```
 
 ### Text Insertion
@@ -288,14 +299,17 @@ App Launch → Check all permissions → Missing? → Request → Show alert if 
 
 ### CPU Usage
 - Idle: < 1%
-- Recording: 5-15% (speech recognition)
+- Recording: 10-20% (audio capture)
+- Transcription: 50-100% (Whisper.cpp processing)
+- Text processing: 50-100% (LLM processing)
 - Brief spike during text insertion
 
 ### Latency
 - Hotkey detection: < 50ms
 - Recording start: < 200ms
-- Partial results: 1-2 seconds
-- Final results: < 1 second after speech ends
+- Transcription: 2-5 seconds (Whisper.cpp)
+- Text enhancement: 2-10 seconds (LLM)
+- Total end-to-end: 4-15 seconds
 - Text insertion: < 100ms
 
 ## Dependencies
@@ -303,9 +317,12 @@ App Launch → Check all permissions → Missing? → Request → Show alert if 
 ### System Frameworks
 - **AppKit** (Cocoa): UI, menu bar
 - **AVFoundation**: Audio capture
-- **Speech**: Speech recognition
 - **Carbon**: Global hotkeys
 - **CoreGraphics**: Synthetic events
+
+### External Dependencies
+- **Whisper.cpp**: Local speech recognition (downloaded automatically)
+- **Ollama**: Local LLM processing (optional, but recommended)
 
 ### Minimum Requirements
 - macOS 13.0 (Ventura)
@@ -316,9 +333,9 @@ App Launch → Check all permissions → Missing? → Request → Show alert if 
 
 1. **True Push-to-Talk**: Cannot detect key release events with current Carbon API. Uses timeout workaround.
 
-2. **Language Support**: Limited to languages supported by on-device recognition (primarily English).
+2. **Language Support**: Whisper.cpp supports multiple languages, but currently configured for English only.
 
-3. **Background Noise**: On-device recognition may be less robust than cloud-based alternatives.
+3. **Processing Time**: End-to-end latency is 4-15 seconds due to local processing of both Whisper and LLM.
 
 4. **Hotkey Conflicts**: If another app uses Cmd+Shift+V, registration may fail silently.
 

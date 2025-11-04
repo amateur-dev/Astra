@@ -14,18 +14,30 @@ class StatusBarController {
     private var lastTranscribedText: String = ""
     
     init() {
+        print("StatusBarController initializing...")
         setupStatusItem()
         setupMenu()
         setupVoiceRecognition()
         registerHotkey()
+        print("StatusBarController initialized")
     }
     
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        
+
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Voice Hotkey")
-            button.image?.isTemplate = true
+            // Try to create the image
+            if let image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Voice Hotkey") {
+                button.image = image
+                button.image?.isTemplate = true
+                print("Status bar icon set successfully")
+            } else {
+                print("Failed to create mic.fill icon, trying fallback")
+                // Fallback to a text-based icon
+                button.title = "🎙️"
+            }
+        } else {
+            print("Failed to get status item button")
         }
     }
     
