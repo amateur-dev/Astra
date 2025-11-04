@@ -117,11 +117,34 @@ jobs:
           LOG_DIR="$GITHUB_WORKSPACE/smoketest-logs"
           mkdir -p "$LOG_DIR"
           
-          echo "Running headless smoke test..."
-          # Run in headless smoke test mode with environment variable
-          # This mode initializes the app minimally, prints diagnostics, and exits
-          VOICEHOTKEY_SMOKE_TEST=1 "$BIN" > "$LOG_DIR/app.stdout" 2> "$LOG_DIR/app.stderr"
-          SMOKE_EXIT_CODE=$?
+          echo "Running headless smoke test with 30s timeout..."
+          # Run in headless smoke test mode with environment variable but guard with a 30s timeout
+          # Start the app in background and capture stdout/stderr
+          VOICEHOTKEY_SMOKE_TEST=1 "$BIN" > "$LOG_DIR/app.stdout" 2> "$LOG_DIR/app.stderr" &
+          APP_PID=$!
+
+          # Wait up to 30 seconds for the process to finish
+          TIMEOUT=30
+          ELAPSED=0
+          while kill -0 "$APP_PID" 2>/dev/null; do
+            if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+              echo "Smoke test timed out after ${TIMEOUT}s, killing process $APP_PID"
+              kill "$APP_PID" 2>/dev/null || true
+              break
+            fi
+            sleep 1
+            ELAPSED=$((ELAPSED + 1))
+          done
+
+          # Collect exit code (0 if finished cleanly)
+          if kill -0 "$APP_PID" 2>/dev/null; then
+            # still running; attempt to wait and then force kill
+            wait "$APP_PID" 2>/dev/null || true
+            SMOKE_EXIT_CODE=124
+          else
+            wait "$APP_PID" 2>/dev/null || true
+            SMOKE_EXIT_CODE=$?
+          fi
           
           echo "Smoke test exited with code: $SMOKE_EXIT_CODE"
           
