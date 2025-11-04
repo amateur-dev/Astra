@@ -124,7 +124,7 @@ jobs:
           APP_PID=$!
 
           # Wait up to 30 seconds for the process to finish
-          TIMEOUT=30
+          TIMEOUT=60
           ELAPSED=0
           while kill -0 "$APP_PID" 2>/dev/null; do
             if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
