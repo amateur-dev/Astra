@@ -1,3 +1,15 @@
+node_modules
+dist
+out
+build
+.DS_Store
+.vscode
+env
+.env
+.env.local
+*.dmg
+*.app
+*.log
 # Xcode
 #
 # gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore

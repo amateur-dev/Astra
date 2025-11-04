@@ -1,0 +1,205 @@
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage } = require('electron')
+const path = require('path')
+const fs = require('fs')
+const os = require('os')
+const { exec } = require('child_process')
+const Store = require('electron-store')
+const store = new Store()
+
+let mainWindow = null
+let tray = null
+let isRecording = false
+
+function createWindow () {
+  mainWindow = new BrowserWindow({
+    width: 400,
+    height: 300,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js')
+    }
+  })
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+}
+
+function createTray () {
+  const iconPath = path.join(__dirname, 'tray-icon.png')
+  const icon = nativeImage.createFromPath(iconPath)
+  tray = new Tray(icon)
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Open', click: () => { mainWindow.show() } },
+    { label: 'Quit', click: () => { app.quit() } }
+  ])
+  tray.setToolTip('Voice Hotkey')
+  tray.setContextMenu(contextMenu)
+}
+
+app.whenReady().then(() => {
+  createWindow()
+  createTray()
+
+  // register a simple global shortcut: Cmd+Shift+R to toggle recording
+  const ret = globalShortcut.register('CommandOrControl+Shift+R', () => {
+    isRecording = !isRecording
+    mainWindow.webContents.send('record-toggle', isRecording)
+  })
+  if (!ret) console.log('Global shortcut registration failed')
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
+})
+
+ipcMain.handle('app-version', () => app.getVersion())
+
+// Settings persistence: store a transcription command template under key 'transcribe_cmd'
+ipcMain.handle('get-settings', () => {
+  const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || ''
+  const auto = store.get('auto_transcribe') === true
+  return { transcribe_cmd: tpl, auto_transcribe: auto }
+})
+
+ipcMain.handle('save-settings', (event, settings) => {
+  try {
+    if (!settings || typeof settings !== 'object') return { ok: false, error: 'Invalid settings' }
+    if (typeof settings.transcribe_cmd === 'string') store.set('transcribe_cmd', settings.transcribe_cmd)
+    if (typeof settings.auto_transcribe === 'boolean') store.set('auto_transcribe', settings.auto_transcribe)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
+// Test the configured transcription command. This will try to locate the binary and check the model file if present.
+ipcMain.handle('test-transcribe', async (event) => {
+  try {
+    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || ''
+    if (!tpl) return { ok: false, error: 'No transcription command configured' }
+
+    // Attempt to extract the binary (first token) and -m model path
+    // Binary extraction: first non-space token (may be quoted)
+    let binary = null
+    const binMatch = tpl.match(/^\s*(?:"|')?(.*?)(?:"|')?(?:\s|$)/)
+    if (binMatch) binary = binMatch[1]
+
+    // model path after -m
+    let modelPath = null
+    const mMatch = tpl.match(/-m\s+(?:"|')?([^"'\s]+)(?:"|')?/) 
+    if (mMatch) modelPath = mMatch[1]
+
+    let binaryPath = null
+    let binaryHelp = null
+    // Try to resolve binary path via which if not absolute or not exists
+    const resolveBinary = () => new Promise((resolve) => {
+      if (!binary) return resolve(null)
+      if (fs.existsSync(binary)) return resolve(binary)
+      // try which
+      exec(`which ${binary}`, (err, stdout) => {
+        if (!err) resolve(stdout.toString().trim() || null)
+        else resolve(null)
+      })
+    })
+
+    binaryPath = await resolveBinary()
+
+    if (binaryPath) {
+      // run --help to get some output (non-destructive)
+      binaryHelp = await new Promise((resolve) => {
+        exec(`${JSON.stringify(binaryPath)} --help`, { timeout: 5000 }, (err, stdout, stderr) => {
+          if (err) return resolve({ ok: false, error: (stderr || err.message).toString() })
+          resolve({ ok: true, out: stdout.toString() })
+        })
+      })
+    }
+
+    const modelExists = modelPath ? fs.existsSync(modelPath) : false
+
+    return { ok: true, tpl, binary, binaryPath, binaryHelp, modelPath, modelExists }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
+// Save a recording sent from renderer (Uint8Array) to a temp file and return its path
+ipcMain.handle('save-recording', async (event, uint8Array) => {
+  try {
+    const buffer = Buffer.from(uint8Array)
+    const filename = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.webm`)
+    await fs.promises.writeFile(filename, buffer)
+    // If auto_transcribe is enabled in settings, run transcription now and return transcript
+    const auto = store.get('auto_transcribe') === true
+    if (auto) {
+      try {
+        const tx = await transcribeWebm(filename)
+        if (tx && tx.ok) return { ok: true, path: filename, autoTranscribed: true, text: tx.text, wav: tx.wav }
+        return { ok: true, path: filename, autoTranscribed: true, error: tx && tx.error ? tx.error : 'transcription failed' }
+      } catch (err) {
+        return { ok: true, path: filename, autoTranscribed: true, error: String(err) }
+      }
+    }
+    return { ok: true, path: filename }
+  } catch (err) {
+    console.error('Failed to save recording:', err)
+    return { ok: false, error: String(err) }
+  }
+})
+
+// Transcribe the given webm file: convert to WAV with ffmpeg, then run a configured transcription command.
+ipcMain.handle('transcribe', async (event, webmPath) => {
+  try {
+    if (!webmPath || typeof webmPath !== 'string') return { ok: false, error: 'Invalid path' }
+    // ensure ffmpeg exists
+    const ffmpegCmd = 'ffmpeg'
+    // create wav path
+    const wavPath = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.wav`)
+    // delegate to shared helper
+    const tx = await transcribeWebm(webmPath)
+    return tx
+  } catch (err) {
+    console.error('transcribe handler error', err)
+    return { ok: false, error: String(err) }
+  }
+})
+
+// helper: convert webm -> wav and run configured transcription command template
+async function transcribeWebm (webmPath) {
+  try {
+    const ffmpegCmd = 'ffmpeg'
+    const wavPath = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.wav`)
+    await new Promise((resolve, reject) => {
+      const cmd = `${ffmpegCmd} -y -i ${JSON.stringify(webmPath)} -ar 16000 -ac 1 ${JSON.stringify(wavPath)}`
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) {
+          console.error('ffmpeg failed', err, stderr)
+          return reject(new Error('ffmpeg failed: ' + (stderr || err.message)))
+        }
+        resolve()
+      })
+    })
+
+    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || null
+    if (!tpl) {
+      return { ok: false, error: 'No transcription command configured. Set TRANSCRIBE_CMD env variable or save settings in app.' }
+    }
+
+    const cmd = tpl.replace(/{wav}/g, JSON.stringify(wavPath))
+
+    const transcript = await new Promise((resolve, reject) => {
+      exec(cmd, { maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
+        if (err) {
+          console.error('transcription command failed', err, stderr)
+          return reject(new Error('transcription failed: ' + (stderr || err.message)))
+        }
+        resolve(stdout.toString())
+      })
+    })
+
+    return { ok: true, text: transcript, wav: wavPath }
+  } catch (err) {
+    console.error('transcribeWebm error', err)
+    return { ok: false, error: String(err) }
+  }
+}
