@@ -48,3 +48,130 @@ jobs:
         with:
           name: VoiceHotkeyApp-dmg
           path: VoiceHotkeyApp-Release.dmg
+
+  build-and-smoke-test:
+    name: Build, package, and smoke test
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build VoiceHotkeyApp (Release)
+        run: |
+          set -euo pipefail
+          PROJECT=VoiceHotkeyApp/VoiceHotkeyApp.xcodeproj
+          SCHEME=VoiceHotkeyApp
+          BUILD_DIR="$PWD/build"
+          
+          echo "Building project..."
+          xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
+            -derivedDataPath "$BUILD_DIR" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+
+      - name: Package DMG
+        run: |
+          set -euo pipefail
+          BUILD_PRODUCTS="$PWD/build/Build/Products/Release"
+          APP_PATH=$(find "$BUILD_PRODUCTS" -maxdepth 2 -name "VoiceHotkeyApp.app" -print | head -n1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Built app not found in $BUILD_PRODUCTS"
+            ls -la "$BUILD_PRODUCTS" || true
+            exit 1
+          fi
+          
+          echo "Found app: $APP_PATH"
+          ARTIFACT="$PWD/VoiceHotkeyApp-Release.dmg"
+          bash scripts/package-dmg.sh "$APP_PATH" "$ARTIFACT"
+
+      - name: Install app on runner for smoke test
+        run: |
+          set -euo pipefail
+          APP_SRC="$PWD/build/Build/Products/Release/VoiceHotkeyApp.app"
+          APP_DST="/Applications/VoiceHotkeyApp.app"
+          
+          echo "Installing app to $APP_DST"
+          sudo rm -rf "$APP_DST" || true
+          sudo cp -R "$APP_SRC" "$APP_DST"
+          sudo xattr -dr com.apple.quarantine "$APP_DST" || true
+          sudo chmod -R a+rX "$APP_DST"
+          
+          # Verify executable exists and is executable
+          BIN="$APP_DST/Contents/MacOS/VoiceHotkeyApp"
+          if [ ! -f "$BIN" ]; then
+            echo "ERROR: Executable not found at $BIN"
+            ls -la "$APP_DST/Contents/MacOS/" || true
+            exit 1
+          fi
+          if [ ! -x "$BIN" ]; then
+            echo "ERROR: Executable is not executable"
+            ls -l "$BIN"
+            exit 1
+          fi
+          echo "App installed and verified"
+
+      - name: Run smoke test (launch and collect logs)
+        run: |
+          set -euo pipefail
+          BIN="/Applications/VoiceHotkeyApp.app/Contents/MacOS/VoiceHotkeyApp"
+          LOG_DIR="$GITHUB_WORKSPACE/smoketest-logs"
+          mkdir -p "$LOG_DIR"
+          
+          echo "Starting app in background..."
+          # Start app; capture stdout/stderr
+          "$BIN" > "$LOG_DIR/app.stdout" 2> "$LOG_DIR/app.stderr" &
+          APP_PID=$!
+          echo "Started app PID=$APP_PID"
+          
+          # Wait a short time for startup messages
+          echo "Waiting 10 seconds for app to initialize..."
+          sleep 10
+          
+          # Collect filtered system logs (last 5m) for interesting messages
+          echo "Collecting system logs..."
+          log show --predicate 'process == "VoiceHotkeyApp" AND (eventMessage CONTAINS "StatusBarController" OR eventMessage CONTAINS "Status bar" OR eventMessage CONTAINS "Final polished text" OR eventMessage CONTAINS "Failed" OR eventMessage CONTAINS "Error")' \
+            --last 5m --info > "$LOG_DIR/syslog.txt" 2>&1 || true
+          
+          # Also capture stdout/stderr
+          echo "=== App stdout ===" >> "$LOG_DIR/combined.txt"
+          cat "$LOG_DIR/app.stdout" >> "$LOG_DIR/combined.txt" || true
+          echo "" >> "$LOG_DIR/combined.txt"
+          echo "=== App stderr ===" >> "$LOG_DIR/combined.txt"
+          cat "$LOG_DIR/app.stderr" >> "$LOG_DIR/combined.txt" || true
+          echo "" >> "$LOG_DIR/combined.txt"
+          echo "=== System log ===" >> "$LOG_DIR/combined.txt"
+          cat "$LOG_DIR/syslog.txt" >> "$LOG_DIR/combined.txt" || true
+          
+          # Print quick summary
+          echo "=== Log Summary ==="
+          grep -E "StatusBarController|Status bar|Final polished text|Failed|Error" "$LOG_DIR/combined.txt" || echo "No matching log entries found"
+          
+          # Check for expected startup phrases in combined logs
+          if grep -E "StatusBarController initializing|StatusBarController initialized|Status bar icon set successfully" "$LOG_DIR/combined.txt" > /dev/null 2>&1; then
+            echo ""
+            echo "✅ SMOKE TEST PASSED: Found expected startup logs."
+            echo "App successfully initialized its StatusBarController."
+            exit 0
+          else
+            echo ""
+            echo "❌ SMOKE TEST FAILED: Expected startup logs not found."
+            echo "The app may have crashed or failed to initialize properly."
+            echo ""
+            echo "Expected to find one of:"
+            echo "  - 'StatusBarController initializing'"
+            echo "  - 'StatusBarController initialized'"
+            echo "  - 'Status bar icon set successfully'"
+            echo ""
+            echo "Full logs are available in the uploaded artifacts."
+            ls -la "$LOG_DIR"
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceHotkeyApp-dmg-and-logs
+          path: |
+            VoiceHotkeyApp-Release.dmg
+            smoketest-logs/**
