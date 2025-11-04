@@ -1,4 +1,5 @@
 import Cocoa
+import os.log
 
 class StatusBarController {
     private var statusItem: NSStatusItem?
@@ -13,12 +14,32 @@ class StatusBarController {
     // Store last transcribed text for LLM processing
     private var lastTranscribedText: String = ""
     
-    init() {
+    // Logger
+    private let logger = OSLog(subsystem: "com.voicehotkey.app", category: "StatusBarController")
+    
+    // Smoke test mode flag
+    private let isSmokeTest: Bool
+    
+    convenience init() {
+        self.init(smokeTestMode: false)
+    }
+    
+    init(smokeTestMode: Bool) {
+        self.isSmokeTest = smokeTestMode
+        
+        os_log("StatusBarController initializing...", log: logger, type: .info)
         print("StatusBarController initializing...")
+        
         setupStatusItem()
-        setupMenu()
-        setupVoiceRecognition()
-        registerHotkey()
+        
+        if !isSmokeTest {
+            // Only setup full app in non-smoke-test mode
+            setupMenu()
+            setupVoiceRecognition()
+            registerHotkey()
+        }
+        
+        os_log("StatusBarController initialized", log: logger, type: .info)
         print("StatusBarController initialized")
     }
     
@@ -30,13 +51,16 @@ class StatusBarController {
             if let image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Voice Hotkey") {
                 button.image = image
                 button.image?.isTemplate = true
+                os_log("Status bar icon set successfully", log: logger, type: .info)
                 print("Status bar icon set successfully")
             } else {
+                os_log("Failed to create mic.fill icon, trying fallback", log: logger, type: .error)
                 print("Failed to create mic.fill icon, trying fallback")
                 // Fallback to a text-based icon
                 button.title = "🎙️"
             }
         } else {
+            os_log("Failed to get status item button", log: logger, type: .error)
             print("Failed to get status item button")
         }
     }
