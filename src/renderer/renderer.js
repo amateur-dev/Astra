@@ -97,6 +97,7 @@ window.electronAPI.onRecordToggle((state) => {
 ;(function setupTranscribe () {
   const transBtn = document.getElementById('transcribeBtn')
   const transcriptEl = document.getElementById('transcript')
+  const pasteBtn = document.getElementById('pasteBtn')
   if (!transBtn) return
   transBtn.addEventListener('click', async () => {
     const p = transBtn.dataset.path
@@ -111,6 +112,9 @@ window.electronAPI.onRecordToggle((state) => {
         if (transcriptEl) {
           transcriptEl.textContent = r.text || '(empty)'
           transcriptEl.style.display = 'block'
+          if (pasteBtn) {
+            pasteBtn.disabled = false
+          }
         }
       } else {
         status.textContent = `Transcription failed: ${r && r.error ? r.error : 'unknown'}`
@@ -121,6 +125,28 @@ window.electronAPI.onRecordToggle((state) => {
       transBtn.disabled = false
     }
   })
+  if (pasteBtn) {
+    pasteBtn.addEventListener('click', async () => {
+      const transcriptEl = document.getElementById('transcript')
+      if (!transcriptEl) return
+      const text = transcriptEl.textContent || ''
+      if (!text) return
+      pasteBtn.disabled = true
+      status.textContent = 'Pasting into front app...'
+      try {
+        const r = await window.electronAPI.pasteToFront(text)
+        if (r && r.ok) {
+          status.textContent = 'Pasted into front app.'
+        } else {
+          status.textContent = `Paste failed: ${r && r.error ? r.error : 'unknown'}`
+        }
+      } catch (err) {
+        status.textContent = 'Paste failed: ' + err
+      } finally {
+        pasteBtn.disabled = false
+      }
+    })
+  }
 })()
 
 // Settings UI wiring
