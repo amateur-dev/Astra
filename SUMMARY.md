@@ -36,203 +36,45 @@ local-hotkey-voice-mac-app/
 ├── .gitignore                   # Git exclusions
 └── VoiceHotkeyApp/
     ├── VoiceHotkeyApp.xcodeproj/
-    │   ├── project.pbxproj      # Xcode project file
-    │   ├── xcshareddata/
-    │   │   └── xcschemes/
-    │   │       └── VoiceHotkeyApp.xcscheme
-    │   └── project.xcworkspace/
-    │       └── contents.xcworkspacedata
-    └── VoiceHotkeyApp/
-        ├── AppDelegate.swift              # App entry point
-        ├── StatusBarController.swift      # Menu bar UI
-        ├── HotkeyManager.swift           # Global hotkey handling
-        ├── VoiceRecognitionManager.swift # Voice capture & recognition
-        ├── PermissionManager.swift       # Permission management
-        ├── PreferencesWindow.swift       # Settings UI
-        ├── Info.plist                    # App configuration
-        ├── VoiceHotkeyApp.entitlements  # Security entitlements
-        └── Assets.xcassets/             # App assets
-            ├── Contents.json
-            ├── AppIcon.appiconset/
-            │   └── Contents.json
-            └── AccentColor.colorset/
-                └── Contents.json
-```
+    # Summary — Electron rewrite (short)
 
-## Technical Implementation
+    What changed
 
-### Architecture Pattern
-- Singleton managers for shared state
-- Callback-based event system
-- Main thread UI updates
-- Clean separation of concerns
+    - The original Swift macOS menu-bar app was replaced (by user request) with an Electron MVP that reproduces the core workflow: global hotkey → record → local transcription → optional Ollama polish → paste into front app.
 
-### Frameworks Used
-- **AppKit**: Menu bar and UI
-- **AVFoundation**: Audio capture
-- **Speech**: Speech recognition
-- **Carbon**: Global hotkeys
-- **CoreGraphics**: Synthetic events
+    Key deliverables
 
-### Key Technical Decisions
+    - Global hotkey (Cmd/Ctrl+Shift+V) to toggle recording
+    - MediaRecorder-based capture in the renderer; saved to /tmp
+    - Conversion to WAV using `ffmpeg` in `src/main.js`
+    - Configurable transcription command (whisper.cpp) via `{wav}` placeholder
+    - Optional Ollama polishing with IPv6→IPv4 fallback and diagnostics
+    - Paste-to-front via Electron clipboard + `osascript` (requires Accessibility)
+    - Settings UI with persistence (`electron-store`) and Test/Save handlers
+    - Auto-transcribe and optional auto-paste flows
+    - Mic-release fix: MediaStream tracks are stopped immediately on stopRecording()
 
-1. **On-Device Recognition**: Privacy-first approach using `requiresOnDeviceRecognition = true`
-2. **Carbon API**: For system-wide hotkey capture (modern alternatives don't support global hotkeys)
-3. **Synthetic Events**: CGEvent for universal text insertion compatibility
-4. **Clipboard Pipeline**: NSPasteboard with restoration to minimize side effects
-5. **No Sandboxing**: Required for global hotkeys and synthetic events
+    Files changed/added (high level)
 
-## How It Works
+    - `src/main.js` — Main process: IPC, transcribe helper, polish helper, paste helper, globalShortcut
+    - `src/preload.js` — IPC bridge for renderer
+    - `src/renderer/renderer.js` — MediaRecorder UI, recording flow, mic release fix
+    - `src/renderer/index.html` — UI and Settings
+    - Root docs: `README.md`, `LLM_SETUP.md`, `BUILD.md`, `TESTING.md`, `ARCHITECTURE.md`, `VERIFICATION.md` (updated)
 
-### Normal Flow
-1. User presses Cmd+Shift+V
-2. App checks permissions (accessibility, mic, speech)
-3. Audio engine starts capturing microphone
-4. Audio buffers stream to speech recognizer
-5. Recognition results appear in real-time
-6. Final text is copied to clipboard
-7. Synthetic Cmd+V is sent to active app
-8. Text appears at cursor position
-9. Original clipboard is restored
+    What I verified during this session
 
-### Two Modes
-- **Push-to-Talk**: Press to start, auto-stops after speech or timeout
-- **Toggle**: Press once to start, again to stop
+    - Manual dev-run: app starts and UI loads (after fixing an ESM import issue with a dynamic import)
+    - Recording → save → WAV conversion → transcription pipeline works when `ffmpeg` and a valid `TRANSCRIBE_CMD` are present
+    - Ollama polishing works when `ollama serve` is running and model is pulled; IPv4 fallback flows were tested
+    - Paste into front app works with Accessibility permission; app shows helpful guidance when missing
+    - Mic indicator issue fixed by stopping tracks
 
-## Requirements Met
+    Next steps (recommended)
 
-All 10 requirements from the problem statement:
-- ✅ Swift macOS menu-bar app (NSStatusItem)
-- ✅ Rebindable global hotkey (Cmd+Shift+V)
-- ✅ Capture mic with AVAudioEngine.installTap
-- ✅ Stream to SFSpeechRecognizer with requiresOnDeviceRecognition
-- ✅ Insert text via NSPasteboard + synthetic Cmd+V (CGEvent)
-- ✅ Check AXIsProcessTrustedWithOptions
-- ✅ Check mic permissions
-- ✅ Check speech permissions
-- ✅ Provide push-to-talk mode
-- ✅ Provide toggle mode
+    1. Add CI to run a quick smoke test and linting
+    2. Add unit tests for `transcribeWebm` and `polishWithOllama` (Jest + mocks)
+    3. Add Settings UI to customize the global hotkey
+    4. Package with `electron-builder` on macOS and create a signed DMG (requires Apple Developer credentials)
 
-## Getting Started
-
-### Building
-```bash
-cd VoiceHotkeyApp
-open VoiceHotkeyApp.xcodeproj
-# Press Cmd+R to build and run
-```
-
-### Requirements
-- macOS 13.0 (Ventura) or later
-- Xcode 15.0 or later
-- Microphone
-- Permissions: Accessibility, Microphone, Speech Recognition
-
-### First Run
-1. Grant accessibility permission in System Preferences
-2. Grant microphone access when prompted
-3. Grant speech recognition when prompted
-4. Press Cmd+Shift+V to activate voice input
-5. Speak your text
-6. Text appears at cursor
-
-## Testing
-
-Comprehensive test suite documented in TESTING.md:
-- 9 functional tests
-- 6 edge case tests
-- 3 performance tests
-- Regression test checklist
-
-## Documentation
-
-Complete documentation set:
-1. **README.md**: User guide, features, usage
-2. **BUILD.md**: Build instructions, troubleshooting
-3. **TESTING.md**: Test cases, procedures
-4. **ARCHITECTURE.md**: Technical deep-dive, diagrams
-5. **VERIFICATION.md**: Requirements checklist with proofs
-6. **SUMMARY.md**: This overview document
-
-## Known Limitations
-
-1. **Push-to-Talk Implementation**: Uses timeout instead of key-release detection (Carbon API limitation)
-2. **Hotkey Rebinding UI**: Rebindable via code, UI noted for future update
-3. **Language Support**: Limited to on-device recognition languages (primarily English)
-4. **Clipboard Side Effects**: Brief modification during text insertion
-5. **App Compatibility**: Requires target apps to accept Cmd+V paste events
-
-## Future Enhancements
-
-Potential improvements:
-- True push-to-talk with key-release detection
-- Hotkey rebinding UI
-- Multi-language support
-- Custom vocabulary
-- Command mode (voice commands)
-- Transcription history
-- Direct text insertion (without clipboard)
-
-## Code Quality
-
-- Modern Swift 5.0
-- No compiler warnings
-- Proper error handling
-- Memory-safe (no retain cycles)
-- Thread-safe operations
-- Well-commented code
-- Consistent style
-
-## Security & Privacy
-
-- On-device speech recognition (no cloud)
-- Hardened runtime enabled
-- Minimal entitlements
-- Permission checks before access
-- No data collection
-- No network access
-
-## Performance
-
-- Idle: < 1% CPU, ~30-50 MB RAM
-- Recording: 5-15% CPU, ~70 MB RAM
-- Low latency: < 50ms hotkey detection
-- Real-time: 1-2s for partial results
-
-## Build Output
-
-When built, produces:
-- **VoiceHotkeyApp.app**: Standalone macOS application
-- Runs from menu bar
-- No dock icon (LSUIElement = true)
-- Code signed (development or distribution)
-
-## Success Criteria
-
-✅ All requirements implemented
-✅ Clean, maintainable code
-✅ Comprehensive documentation
-✅ Ready to build
-✅ Production quality
-✅ Privacy-focused
-✅ User-friendly
-
-## Conclusion
-
-This project successfully implements all requirements for a macOS voice-to-text menu bar application. The code is clean, well-documented, and ready for production use. All APIs specified in the problem statement are correctly implemented with proper error handling and user experience considerations.
-
-The application demonstrates:
-- Expert-level Swift and macOS development
-- Proper use of system frameworks
-- Security and privacy best practices
-- Professional documentation standards
-- Production-ready code quality
-
-**Status: READY FOR DEPLOYMENT**
-
----
-
-*Implementation completed: November 4, 2025*
-*Platform: macOS 13.0+*
-*Language: Swift 5.0*
-*Build System: Xcode 15.0+*
+    This summary accompanies the updated documentation in the repo. I will now commit and push these documentation changes and open a PR to merge `electron-rewrite` into `main` with the title "Docs: update README and setup docs for Electron rewrite" (unless you want a different PR title or target branch).

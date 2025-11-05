@@ -3,13 +3,15 @@ const btn = document.getElementById('recordBtn')
 let recording = false
 let mediaRecorder = null
 let chunks = []
+let currentStream = null
 
 btn.addEventListener('click', () => toggleRecording())
 
 async function startRecording () {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    mediaRecorder = new MediaRecorder(stream)
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  currentStream = stream
+  mediaRecorder = new MediaRecorder(stream)
     chunks = []
     mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data) }
     mediaRecorder.onstop = async () => {
@@ -78,6 +80,17 @@ async function startRecording () {
 
 function stopRecording () {
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    // stop tracks immediately to release microphone indicator
+    try {
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => {
+          try { t.stop() } catch (e) { /* ignore */ }
+        })
+        currentStream = null
+      }
+    } catch (e) {
+      console.warn('Error stopping media tracks', e)
+    }
     mediaRecorder.stop()
   }
   recording = false

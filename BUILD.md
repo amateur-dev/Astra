@@ -27,9 +27,46 @@ cd VoiceHotkeyApp
 xcodebuild -project VoiceHotkeyApp.xcodeproj -scheme VoiceHotkeyApp -configuration Debug build
 ```
 
-### Code Signing
+# Build and Packaging
 
-For development builds, you can use automatic code signing:
+Development run
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Start the app in development mode:
+
+```bash
+npm run start
+```
+
+Packaging (macOS DMG)
+
+This project uses `electron-builder` to create macOS artifacts. To build a signed DMG you typically need an Apple Developer account and macOS toolchain.
+
+Basic dist command:
+
+```bash
+npm run dist
+```
+
+Notes
+
+- Building macOS signed artifacts requires a macOS machine and code signing credentials (Developer ID). For local testing you can produce an unsigned app.
+- The dist target is configured in `package.json` (check `build` property) — adjust as needed for targets and icons.
+
+Troubleshooting
+
+- If native dependencies fail to build, ensure you have the Xcode Command Line Tools installed:
+
+```bash
+xcode-select --install
+```
+
+- If you make native module changes, you may need to rebuild them for the Electron ABI (use `electron-rebuild` or reinstall with the electron headers).
 1. Open the project in Xcode
 2. Select the "VoiceHotkeyApp" target
 3. In "Signing & Capabilities", check "Automatically manage signing"
@@ -87,5 +124,3 @@ VoiceHotkeyApp/
 - AppKit (Cocoa)
 - AVFoundation (Audio capture)
 - Speech (Speech recognition)
-- Carbon (Global hotkeys)
-- CoreGraphics (Synthetic keyboard events)

@@ -86,269 +86,70 @@ Voice Hotkey App is a macOS menu bar application that provides system-wide voice
 
 **Responsibilities:**
 - Register global hotkey with Carbon Event Manager
-- Handle hotkey press events
-- Support hotkey rebinding
-- Convert between key codes and readable format
+# Architecture — Electron MVP
 
-**Key APIs:**
-- `RegisterEventHotKey()` (Carbon)
-- `InstallEventHandler()` (Carbon)
-- `UnregisterEventHotKey()` (Carbon)
+This document describes the high-level architecture of the Electron-based MVP that replaced the previous native macOS implementation. The app's responsibilities are:
 
-**Implementation Details:**
-- Uses Carbon's Event Manager for system-wide hotkey capture
-- Default: Cmd+Shift+V (keyCode: kVK_ANSI_V, modifiers: cmdKey | shiftKey)
-- Thread-safe callback mechanism
+- Global hotkey to toggle recording
+- Capture audio in the renderer using MediaRecorder
+- Save audio to /tmp, convert to WAV with ffmpeg
+- Run a local STT CLI (whisper.cpp) via a configurable command template
+- Optionally call a local Ollama server to polish transcripts
+- Paste prepared text into the frontmost app (clipboard + synthetic paste via osascript)
 
-**Limitations:**
-- Cannot detect key release for true push-to-talk
-- Hotkey must be unique system-wide
+Components
 
-### VoiceRecognitionManager
-**Purpose:** Audio capture, speech recognition, and text processing
+1) Main process (`src/main.js`)
+- Responsibilities:
+  - App lifecycle, tray/menu, and globalShortcut registration
+  - IPC handlers for: save-recording, transcribe, get-settings, save-settings, test-transcribe, paste-into-front
+  - Helpers: transcribeWebm(webmPath), polishWithOllama(text)
+  - Runs ffmpeg and the transcription CLI as child processes and returns stdout/stderr to the renderer
+  - Writes clipboard content and runs `osascript` for synthetic paste events when requested
 
-**Responsibilities:**
-- Manage audio engine lifecycle
-- Capture microphone input to WAV file
-- Coordinate Whisper transcription
-- Process text with LLM for enhancement
-- Insert polished text at cursor
-- Support two recognition modes
+2) Preload (`src/preload.js`)
+- Responsibilities:
+  - Exposes a safe IPC surface to the renderer (contextBridge) with methods for saving recordings, transcribing, reading/saving settings and triggering paste
 
-**Key APIs:**
-- `AVAudioEngine` - Audio capture
-- `AVAudioEngine.inputNode.installTap()` - Buffer-level access
-- `AVAudioFile` - WAV file writing
-- `Process` - Subprocess execution for Whisper.cpp
-- `LLMManager` - Text enhancement via Ollama
-- `NSPasteboard` - Clipboard operations
-- `CGEvent` - Synthetic keyboard events
+3) Renderer (`src/renderer/renderer.js`, `src/renderer/index.html`)
+- Responsibilities:
+  - UI: record/pause button, transcript display, settings panel
+  - Acquire microphone stream via getUserMedia and use MediaRecorder to capture WebM
+  - Send the saved WebM via IPC to main to persist and optionally auto-transcribe/polish/paste
+  - Load/save settings using the exposed preload API
+  - Ensure MediaStream tracks are stopped immediately when stopping recording to release the microphone
 
-**Audio Pipeline:**
-```
-Microphone → AVAudioEngine → installTap(buffer) → AVAudioFile (WAV) → WhisperManager → Whisper.cpp → Raw Text → LLMManager → Llama 3 → Polished Text
-```
+4) Persistence
+- `electron-store` stores settings such as `transcribe_cmd`, `auto_transcribe`, `ollama_enabled`, `ollama_url`, `ollama_model`, `auto_paste`.
 
-**Recognition Modes:**
-1. **Push-to-Talk**: 
-   - Starts on hotkey press
-   - Auto-stops after 5 seconds or when speech ends
-   - Best for short commands
+5) External tools
+- `ffmpeg` — required for webm → wav conversion (must be on PATH)
+- `whisper.cpp` (or equivalent CLI) — invoked using the configured template (must include `{wav}`)
+- `ollama` (optional) — local server the app calls via HTTP to polish text
 
-2. **Toggle**: 
-   - Starts on first hotkey press
-   - Stops on second press
-   - Best for longer dictation
+IPC contract (high level)
 
-**Text Insertion Flow:**
-```
-1. Save current pasteboard content
-2. Clear pasteboard
-3. Set recognized text to pasteboard
-4. Create Cmd+V key down event (CGEvent)
-5. Post key down event
-6. Create Cmd+V key up event
-7. Post key up event
-8. Wait 200ms
-9. Restore original pasteboard content
-```
+- save-recording (renderer → main): payload { webmBase64, filename? } → main writes to /tmp and returns path
+- transcribe (renderer → main): path → returns { success, text, diagnostics }
+- paste-into-front (renderer → main): text → writes clipboard and runs osascript to synthesize Cmd+V
+- get-settings / save-settings (renderer ↔ main): exchange settings object
 
-**On-Device Recognition:**
-- Set via `requiresOnDeviceRecognition = true`
-- Ensures privacy (no network transmission)
-- Requires macOS 13.0+
-- Limited to supported languages
+Error handling and diagnostics
 
-### PermissionManager
-**Purpose:** Permission verification and request handling
+- The main process captures stdout/stderr of child processes and returns both to the renderer so UI can show helpful error messages.
+- Ollama helper will try configured host (often `http://localhost:11434`) and, on connection errors, retry with `http://127.0.0.1:11434` and return details of attempted hosts and errors to help troubleshoot IPv6 vs IPv4 binding issues.
 
-**Responsibilities:**
-- Check accessibility permissions
-- Request microphone access
-- Request speech recognition access
-- Show permission alerts
-- Validate permissions before operations
+Security & Permissions
 
-**Key APIs:**
-- `AXIsProcessTrustedWithOptions()` - Accessibility
-- `AVCaptureDevice.requestAccess(for: .audio)` - Microphone
-- `SFSpeechRecognizer.requestAuthorization()` - Speech
+- Paste via `osascript` requires macOS Accessibility permission to allow the process to control the computer. The app shows helpful messages guiding the user to grant this permission.
+- The app does not upload audio or transcripts by default; Ollama calls are to a user-managed local server.
 
-**Permission Flow:**
-```
-App Launch → Check all permissions → Missing? → Request → Show alert if denied
-```
+Quality gates
 
-### PreferencesWindow
-**Purpose:** User preferences and settings UI
+- The main process should validate that `ffmpeg` is on PATH and that `transcribe_cmd` expands to a valid executable before attempting transcription.
+- The renderer ensures MediaStream tracks are stopped on stop to avoid the persistent mic indicator issue.
 
-**Responsibilities:**
-- Display current configuration
-- Show hotkey information
-- Explain modes and permissions
-- Future: Support hotkey rebinding
+Next steps (low-risk improvements)
 
-**Key APIs:**
-- `NSWindow`
-- `NSTextField`
-- `NSView`
-
-## Data Flow
-
-### Recording Activation (Push-to-Talk)
-```
-1. User presses Cmd+Shift+V
-2. HotkeyManager receives event
-3. HotkeyManager calls callback → StatusBarController.handleHotkey()
-4. StatusBarController → VoiceRecognitionManager.startRecording()
-5. VoiceRecognitionManager checks permissions
-6. Audio engine starts, tap installed, recording to WAV file
-7. UI updates to "Recording..."
-8. After 10s → stopRecording() automatically
-9. Audio file passed to WhisperManager.transcribeAudio()
-10. Whisper.cpp transcribes audio to text
-11. Raw transcription passed to LLMManager.processText() with smartEdit
-12. Llama 3 enhances the text
-13. Polished text → insertText()
-14. Text appears at cursor
-```
-
-### Recording Activation (Toggle)
-```
-1. User presses Cmd+Shift+V (first time)
-2-7. Same as push-to-talk
-8. Recording continues until user presses hotkey again
-9. Audio file passed to WhisperManager.transcribeAudio()
-10. Whisper.cpp transcribes audio to text
-11. Raw transcription passed to LLMManager.processText() with smartEdit
-12. Llama 3 enhances the text
-13. Polished text → insertText()
-14. Text appears at cursor
-```
-
-### Text Insertion
-```
-1. VoiceRecognitionManager receives final transcription
-2. onFinalResult callback fired with text
-3. StatusBarController.insertText(text) called
-4. VoiceRecognitionManager.insertText(text):
-   a. Store current pasteboard
-   b. Set text to pasteboard
-   c. Generate Cmd+V CGEvent
-   d. Post to system
-   e. Restore pasteboard after delay
-```
-
-## Threading Model
-
-- **Main Thread:**
-  - All UI updates
-  - Status bar modifications
-  - Window management
-  - Callback invocations (explicitly dispatched)
-
-- **Background Threads:**
-  - Audio capture (AVAudioEngine's internal thread)
-  - Speech recognition (SFSpeechRecognizer's internal thread)
-
-- **Thread Safety:**
-  - All callbacks dispatch to main queue
-  - Audio engine accessed serially
-  - Singleton pattern for managers
-
-## Error Handling
-
-### Permission Errors
-- Checked before each operation
-- User-friendly alerts shown
-- Graceful degradation (operations skip if no permission)
-
-### Audio Errors
-- Wrapped in do-catch blocks
-- Cleanup on failure
-- User notification via status updates
-
-### Recognition Errors
-- Handled in recognitionTask completion
-- Automatic cleanup
-- Silent failure with logging
-
-## Security Considerations
-
-### On-Device Processing
-- No network transmission of audio
-- `requiresOnDeviceRecognition = true` enforces local processing
-- Privacy-first design
-
-### Sandboxing
-- App runs without sandbox (`com.apple.security.app-sandbox = false`)
-- Required for global hotkeys and synthetic events
-- Necessary for accessibility features
-
-### Entitlements
-- `com.apple.security.device.audio-input` - Microphone
-- `com.apple.security.automation.apple-events` - Synthetic events
-- Hardened runtime enabled
-
-## Performance Characteristics
-
-### Memory Usage
-- Baseline: ~30-50 MB
-- Recording: +10-20 MB (audio buffers)
-- Peak: ~70 MB
-
-### CPU Usage
-- Idle: < 1%
-- Recording: 10-20% (audio capture)
-- Transcription: 50-100% (Whisper.cpp processing)
-- Text processing: 50-100% (LLM processing)
-- Brief spike during text insertion
-
-### Latency
-- Hotkey detection: < 50ms
-- Recording start: < 200ms
-- Transcription: 2-5 seconds (Whisper.cpp)
-- Text enhancement: 2-10 seconds (LLM)
-- Total end-to-end: 4-15 seconds
-- Text insertion: < 100ms
-
-## Dependencies
-
-### System Frameworks
-- **AppKit** (Cocoa): UI, menu bar
-- **AVFoundation**: Audio capture
-- **Carbon**: Global hotkeys
-- **CoreGraphics**: Synthetic events
-
-### External Dependencies
-- **Whisper.cpp**: Local speech recognition (downloaded automatically)
-- **Ollama**: Local LLM processing (optional, but recommended)
-
-### Minimum Requirements
-- macOS 13.0 (Ventura)
-- Swift 5.0
-- Xcode 15.0
-
-## Known Limitations
-
-1. **True Push-to-Talk**: Cannot detect key release events with current Carbon API. Uses timeout workaround.
-
-2. **Language Support**: Whisper.cpp supports multiple languages, but currently configured for English only.
-
-3. **Processing Time**: End-to-end latency is 4-15 seconds due to local processing of both Whisper and LLM.
-
-4. **Hotkey Conflicts**: If another app uses Cmd+Shift+V, registration may fail silently.
-
-5. **Text Insertion**: Relies on target app accepting Cmd+V. May not work in all applications.
-
-6. **Clipboard Side Effects**: Brief modification of system clipboard during insertion.
-
-## Future Enhancements
-
-1. **True Push-to-Talk**: Implement using different API or run loop monitoring
-2. **Hotkey Rebinding UI**: Allow users to customize hotkey
-3. **Multiple Language Support**: Add language selector
-4. **Custom Vocabulary**: Support user-defined words/phrases
-5. **Command Mode**: Execute system commands via voice
-6. **History**: Track and replay previous transcriptions
-7. **Keyboard Maestro Integration**: Direct text insertion without clipboard
+- Add a small Jest-based test for `transcribeWebm` and `polishWithOllama` using mocks for child_process and fetch.
+- Add an option to configure the global hotkey via the Settings UI and persist it via `electron-store`.

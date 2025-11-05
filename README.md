@@ -12,110 +12,89 @@ npm install
 
 2. Run in development:
 
+# Voice Hotkey — Electron (MVP)
+
+This repository contains an Electron-based MVP that records microphone audio with a global hotkey, transcribes locally using a Whisper binary (whisper.cpp), optionally polishes the transcript using a locally running Ollama server, and can paste the resulting text into the frontmost app.
+
+This README covers prerequisites, how to run the app during development, and the typical recording → transcribe → paste workflow.
+
+Quick start (development)
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Run the app:
+
 ```bash
 npm run start
 ```
 
-What next (baby steps)
+3. Open the Settings in the app and configure:
+  - Whisper binary path (or set `TRANSCRIBE_CMD` env var)
+  - Model path (-m)
+  - Optional: enable Ollama polishing and set Ollama URL/model
+  - Optional: enable Auto-transcribe and Auto-paste
 
-- Add audio recording in the renderer (getUserMedia) and save WAV files.
-- Add a Node worker that runs `whisper.cpp` on saved WAVs and returns transcripts.
-- Optionally wire Ollama polishing (HTTP to localhost:11434) behind a setting.
-- Add paste-to-app via clipboard + simulated paste.
-- Build DMG via `npm run dist` (requires macOS and Xcode tools).
+Core flow
 
-Notes
+- Press the global hotkey (default: Cmd+Shift+V) to start recording.
+- Press the hotkey again to stop recording. The app saves the recording, converts it to WAV, runs your transcription command, optionally polishes with Ollama, and then:
+  - shows the transcript in the UI
+  - optionally auto-pastes into the frontmost app (requires macOS Accessibility permission)
 
-- The repository `.git` metadata has been preserved. The previous Swift macOS app code was removed at your request.
-# Voice Hotkey macOS App
+Prerequisites (local)
 
-A macOS menu bar application that provides voice-to-text functionality via global hotkeys, using local Whisper for speech recognition and Llama 3 for intelligent text polishing.
+- Node 18+ (used by Electron)
+- ffmpeg (for webm → wav conversion). Install on macOS with Homebrew:
 
-## Features
-
-- **Menu Bar App**: Runs as a status bar item (NSStatusItem) for easy access
-- **Global Hotkey**: Register a rebindable global hotkey (default: Cmd+Shift+V)
-- **Local Speech-to-Text**: Uses Whisper.cpp with OpenAI's Whisper model for offline speech recognition
-- **Intelligent Text Polishing**: Automatically enhances transcripts with Llama 3 for proper formatting, grammar, and clarity
-- **Audio Capture**: Captures microphone input using AVAudioEngine
-- **Text Insertion**: Inserts recognized text at cursor position via NSPasteboard + synthetic Cmd+V (CGEvent)
-- **Permission Management**: Checks and requests accessibility and microphone permissions
-- **Dual Modes**:
-  - **Push-to-Talk**: Press hotkey to start recording, automatically stops after timeout
-  - **Toggle**: Press hotkey once to start, press again to stop recording
-- **Fully Local Processing**: All AI processing (Whisper + LLM) runs locally via Ollama - no cloud, complete privacy
-
-## Requirements
-
-- macOS 13.0 or later
-- Xcode 15.0 or later
-- Microphone access
-- Accessibility permissions (for global hotkeys)
-
-### Required for Voice Recognition
-- Ollama (https://ollama.ai)
-- Whisper model (~1.5GB) - for speech-to-text
-- Llama 3 model (~4.7GB) - for text polishing
-- See [LLM_SETUP.md](LLM_SETUP.md) for detailed setup instructions
-
-## Building
-
-1. Clone the repository
-2. Open `VoiceHotkeyApp/VoiceHotkeyApp.xcodeproj` in Xcode
-3. Build and run (Cmd+R)
-
-## Permissions
-
-The app requires the following permissions:
-
-- **Accessibility**: For global hotkey functionality
-- **Microphone**: For voice input
-- **Speech Recognition**: For converting speech to text
-
-The app will prompt for these permissions on first launch.
-
-## Usage
-
-### First-Time Setup
-
-1. Install Ollama from https://ollama.ai
-2. Launch the Voice Hotkey App
-3. Click the menu bar icon → **Setup Models (Whisper + LLM)**
-4. Wait for models to download (~6GB total)
-5. Once status shows "System: Ready", you're good to go!
-
-### Daily Use
-
-1. Press Cmd+Shift+V (or your configured hotkey) to start recording
-2. Speak your text
-3. The app will:
-   - Transcribe with Whisper (speech-to-text)
-   - Polish with Llama 3 (formatting, grammar, clarity)
-   - Insert polished text at your cursor position
-
-### Switching Modes
-
-Click the menu bar icon and select "Mode: Push-to-Talk" or "Mode: Toggle" to switch between recording modes.
-
-### How It Works
-
-```
-Your Voice → Whisper (Transcription) → Llama 3 (Polishing) → Polished Text Inserted
+```bash
+brew install ffmpeg
 ```
 
-All processing happens locally on your Mac. No internet required after setup.
+- whisper.cpp (or your preferred local CLI) built and a working CLI like `whisper-cli` or `main`. See `LLM_SETUP.md` for build steps and model download.
 
-## Architecture
+- (Optional) Ollama for LLM polishing:
 
-- **AppDelegate.swift**: Main application entry point
-- **StatusBarController.swift**: Manages the menu bar interface
-- **HotkeyManager.swift**: Handles global hotkey registration and events
-- **VoiceRecognitionManager.swift**: Orchestrates recording → Whisper → LLM pipeline
-- **WhisperManager.swift**: Manages Whisper speech-to-text via Ollama
-- **LLMManager.swift**: Manages Llama 3 text polishing via Ollama
-- **PermissionManager.swift**: Handles permission checks and requests
-- **PreferencesWindow.swift**: Preferences UI
+```bash
+# install ollama - https://ollama.ai
+ollama pull llama3.2
+ollama serve
+```
 
-## License
+Settings / TRANSCRIBE_CMD
 
-MIT
+You can either set the transcription command in the app Settings or export an env var in the shell used to start the app:
+
+```bash
+export TRANSCRIBE_CMD="/path/to/whisper-cli -m /path/to/ggml-tiny.en.bin -f {wav}"
+```
+
+The command must include `{wav}` which will be replaced by the temporary WAV path the app generates.
+
+Accessibility note (macOS)
+
+The paste-to-front feature uses `osascript` (System Events) to synthesize Cmd+V in the frontmost app. macOS requires Accessibility permission for whatever process sends those events (Terminal during development or the packaged Electron app once distributed). If pastes fail, grant Accessibility permission in System Settings → Privacy & Security → Accessibility.
+
+Troubleshooting
+
+- Mic indicator stays on after stopping: if you see the macOS mic indicator persist, ensure you started/stopped using the hotkey (the app now releases tracks immediately). If it still persists, check for other apps holding the mic.
+- Ollama connectivity: if the app reports `Ollama unreachable`, try changing the Ollama URL to `http://127.0.0.1:11434` and ensure `ollama serve` is running and the model is pulled.
+- `ffmpeg` missing: install via Homebrew.
+
+Files of interest
+
+- `src/main.js` — Electron main process (tray, global shortcut, IPC, transcription + Ollama calls)
+- `src/preload.js` — IPC bridge for renderer
+- `src/renderer/renderer.js` — UI, MediaRecorder, and paste wiring
+
+Packaging
+
+Use `npm run dist` (configured to call `electron-builder --mac`) to produce a DMG. Packaging requires macOS and Xcode toolchain.
+
+If you need help with any step, tell me which OS step you're on and I will provide the exact commands (e.g., building whisper.cpp, pulling models, or granting macOS permissions).
+
+---
+Updated to reflect the Electron rewrite and the recording → transcribe → paste flow.

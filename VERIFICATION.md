@@ -55,169 +55,47 @@ This document verifies that all requirements from the problem statement have bee
 **Evidence:**
 - File: `VoiceHotkeyApp/VoiceHotkeyApp/VoiceRecognitionManager.swift`
 - Line 155-171: `insertText()` function implementation:
-  - Line 158: `let pasteboard = NSPasteboard.general`
-  - Line 159: Save previous contents
-  - Line 162-163: Set new text to pasteboard
-  - Line 166: Call `sendCommandV()`
-- Line 175-185: `sendCommandV()` creates synthetic Cmd+V:
-  - Line 177-178: Create key down CGEvent with `.maskCommand` flag
-  - Line 181-182: Create key up CGEvent
-  - Line 185-186: Post both events to system
+  # Implementation Verification — Electron MVP
 
-### ✅ Requirement 6: Check AXIsProcessTrustedWithOptions
-**Status:** IMPLEMENTED
+  This file documents the verification performed for the Electron rewrite (recording → transcribe → optional Ollama polish → paste) and lists checks performed during the recent development session.
 
-**Evidence:**
-- File: `VoiceHotkeyApp/VoiceHotkeyApp/PermissionManager.swift`
-- Line 11-14: `checkAccessibilityPermission()` function
-- Line 12: `let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true]`
-- Line 13: `return AXIsProcessTrustedWithOptions(options)` ✓ **EXACT API AS REQUIRED**
-- Called in line 44 of `checkAllPermissions()`
+  Implemented features (verified manually)
 
-### ✅ Requirement 7: Check mic permissions
-**Status:** IMPLEMENTED
+  - Recording via MediaRecorder in the renderer (getUserMedia).
+  - Saving WebM to /tmp and converting to WAV via `ffmpeg` in the main process.
+  - Configurable transcription command (whisper.cpp or other CLI) run as child process; `{wav}` placeholder substitution supported.
+  - Optional Ollama polishing via HTTP POST to `/v1/generate` with IPv6→IPv4 fallback (localhost → 127.0.0.1) and diagnostics returned to the renderer.
+  - Clipboard write + synthetic paste using `osascript` on macOS; helpful guidance shown when Accessibility permission is missing.
+  - Auto-transcribe and Auto-paste settings persisted with `electron-store`.
+  - Global hotkey (default Cmd/Ctrl+Shift+V) registered in main and toggles recording.
+  - MediaStream tracks are explicitly stopped on stop to release the microphone indicator.
 
-**Evidence:**
-- File: `VoiceHotkeyApp/VoiceHotkeyApp/PermissionManager.swift`
-- Line 16-22: `requestMicrophonePermission()` function
-- Line 17: `AVCaptureDevice.requestAccess(for: .audio)`
-- Line 24-27: `checkMicrophonePermission()` checks authorization status
-- Line 52-58: Called in `checkAllPermissions()` with user alerts
+  Quick verification checklist (manual)
 
-### ✅ Requirement 8: Check speech permissions
-**Status:** IMPLEMENTED
+  - Recording start/stop with hotkey: PASS (manual test during development)
+  - WAV conversion (`ffmpeg` present): PASS when `ffmpeg` is installed; otherwise app surfaces error
+  - Transcription CLI invocation: PASS when `TRANSCRIBE_CMD` is correctly configured (manual tests with local whisper.cpp confirmed)
+  - Ollama polish: PASS when `ollama serve` is running and model is pulled; IPv4 fallback tested
+  - Paste into front app: PASS with Accessibility permission granted; helpful error shown when permission missing
+  - Settings persistence: PASS (`electron-store` saving/reading verified)
 
-**Evidence:**
-- File: `VoiceHotkeyApp/VoiceHotkeyApp/PermissionManager.swift`
-- Line 29-35: `requestSpeechRecognitionPermission()` function
-- Line 30: `SFSpeechRecognizer.requestAuthorization`
-- Line 37-40: `checkSpeechRecognitionPermission()` checks authorization status
-- Line 61-67: Called in `checkAllPermissions()` with user alerts
+  Notes / diagnostics captured
 
-### ✅ Requirement 9: Provide push-to-talk mode
-**Status:** IMPLEMENTED
+  - Ollama host resolution: when `localhost` resolves to ::1 and Ollama listens on 127.0.0.1, the app now retries 127.0.0.1 and returns a structured diagnostics object showing attempted hosts and errors.
+  - Mic indicator persistence: fixed by stopping MediaStream tracks immediately on stopRecording(). This was patched into `src/renderer/renderer.js` and validated locally.
 
-**Evidence:**
-- File: `VoiceHotkeyApp/VoiceHotkeyApp/VoiceRecognitionManager.swift`
-- Line 6-9: `enum RecognitionMode` defines `.pushToTalk` case
-- Line 20: Default mode is `.pushToTalk`
-- File: `VoiceHotkeyApp/VoiceHotkeyApp/StatusBarController.swift`
-- Line 92-103: `handleHotkey()` implements push-to-talk behavior:
-  - Starts recording on hotkey press
-  - Auto-stops after timeout or when speech recognition completes
-  - Line 97-101: 5-second timeout for push-to-talk
+  Quality gates and CI notes
 
-### ✅ Requirement 10: Provide toggle mode
-**Status:** IMPLEMENTED
+  - Build: Not run here. Packaging uses `electron-builder` and requires macOS for DMG creation.
+  - Lint/Typecheck: No formal TypeScript; basic syntax checks performed by running the app during dev (no runtime startup errors after recent fixes).
+  - Tests: No automated tests currently in the repo for main process helpers. Suggested next step: add Jest tests that mock child_process and fetch to validate `transcribeWebm` and `polishWithOllama`.
 
-**Evidence:**
-- File: `VoiceHotkeyApp/VoiceHotkeyApp/VoiceRecognitionManager.swift`
-- Line 8: `enum RecognitionMode` defines `.toggle` case
-- Line 142-148: `toggleRecording()` function switches recording state
-- File: `VoiceHotkeyApp/VoiceHotkeyApp/StatusBarController.swift`
-- Line 104-106: Toggle mode in `handleHotkey()` calls `toggleRecording()`
-- Line 110-118: `toggleMode()` switches between modes via menu
-- Menu item displays current mode
+  Outstanding items
 
-## Additional Quality Implementations
+  - Add CI that runs basic linting and starts the app in a headless smoke test (if desired).
+  - Add unit tests for main helpers (transcribe + polish).
+  - Add a Settings UI option to configure the global hotkey and persist it.
 
-### Code Organization
-✅ Clean separation of concerns across 6 Swift files
-✅ Singleton pattern for managers
-✅ Proper use of callbacks and delegates
-✅ Thread-safe operations (main queue dispatching)
+  Conclusion
 
-### Error Handling
-✅ Permission checks before operations
-✅ Do-catch blocks for audio/recognition errors
-✅ Graceful degradation
-✅ User-friendly error alerts
-
-### User Experience
-✅ Menu bar integration with status updates
-✅ Visual feedback (icon, status text)
-✅ Preferences window
-✅ Mode switching
-✅ Permission prompts
-
-### Configuration
-✅ Info.plist with proper keys (LSUIElement, usage descriptions)
-✅ Entitlements file (audio, automation, hardened runtime)
-✅ Xcode project properly configured
-✅ Build scheme included
-
-### Documentation
-✅ README.md - User guide and features
-✅ BUILD.md - Build instructions
-✅ TESTING.md - 18+ test cases
-✅ ARCHITECTURE.md - Technical documentation
-✅ .gitignore - Proper exclusions
-
-## Technical Verification
-
-### Carbon API Usage
-✅ `RegisterEventHotKey()` - Global hotkey registration
-✅ `InstallEventHandler()` - Event handling
-✅ `UnregisterEventHotKey()` - Cleanup
-✅ Proper event type specs and IDs
-
-### AVFoundation Usage
-✅ `AVAudioEngine` - Audio capture
-✅ `installTap(onBus:bufferSize:format:)` - Buffer-level access
-✅ Proper audio engine lifecycle management
-✅ Buffer format matches input node
-
-### Speech Framework Usage
-✅ `SFSpeechRecognizer` - Speech recognition
-✅ `SFSpeechAudioBufferRecognitionRequest` - Streaming recognition
-✅ `requiresOnDeviceRecognition = true` - Privacy-focused
-✅ Partial and final result handling
-
-### Core Graphics Usage
-✅ `CGEvent(keyboardEventSource:virtualKey:keyDown:)` - Synthetic keys
-✅ `.maskCommand` flag - Modifier key
-✅ `.post(tap: .cghidEventTap)` - System-wide posting
-
-### AppKit Usage
-✅ `NSStatusBar.system.statusItem()` - Menu bar item
-✅ `NSMenu`, `NSMenuItem` - Menu structure
-✅ `NSPasteboard.general` - Clipboard operations
-✅ `NSWindow`, `NSView`, `NSTextField` - Preferences UI
-
-## Build Readiness
-
-### Project Files
-✅ project.pbxproj - Complete Xcode project
-✅ Info.plist - All required keys
-✅ Entitlements - Proper capabilities
-✅ Assets.xcassets - App icons
-✅ Workspace data - Xcode workspace
-
-### Source Files
-✅ AppDelegate.swift - App lifecycle
-✅ StatusBarController.swift - Menu bar UI
-✅ HotkeyManager.swift - Global hotkeys
-✅ VoiceRecognitionManager.swift - Speech recognition
-✅ PermissionManager.swift - Permissions
-✅ PreferencesWindow.swift - Settings UI
-
-### Build Configuration
-✅ Debug and Release configurations
-✅ Code signing setup
-✅ Deployment target: macOS 13.0
-✅ Swift 5.0
-✅ Build scheme included
-
-## Conclusion
-
-**ALL REQUIREMENTS HAVE BEEN SUCCESSFULLY IMPLEMENTED.**
-
-The application is:
-- ✅ Functionally complete
-- ✅ Well-architected
-- ✅ Properly documented
-- ✅ Ready to build
-- ✅ Privacy-focused (on-device recognition)
-- ✅ User-friendly
-
-The implementation faithfully follows the problem statement and includes all required APIs and features. The code is production-ready and can be built on macOS 13.0+ with Xcode 15.0+.
+  The Electron rewrite implements the requested recording → local transcription → optional LLM polish → paste flow, with helpful diagnostics and UX around missing dependencies (ffmpeg, transcription CLI, Ollama) and macOS Accessibility. Manual tests during development validated the key flows; CI and automated tests are the recommended next steps.
