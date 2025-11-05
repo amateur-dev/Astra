@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage } = require('electron')
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, clipboard } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -142,6 +142,38 @@ ipcMain.handle('test-transcribe', async (event) => {
 
     return { ok: true, tpl, binary, binaryPath, binaryHelp, modelPath, modelExists }
   } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
+// Paste integration: write to clipboard and simulate Cmd+V via AppleScript (osascript)
+ipcMain.handle('paste-into-front', async (event, text) => {
+  try {
+    if (typeof text !== 'string') return { ok: false, error: 'Invalid text' }
+    // write to clipboard using Electron API
+    try {
+      clipboard.writeText(text)
+    } catch (err) {
+      console.error('clipboard write failed', err)
+      // continue; still try AppleScript
+    }
+
+    // Use osascript to send Cmd+V to the frontmost app. This requires Accessibility permission for the host app.
+    const as = 'tell application "System Events" to keystroke "v" using {command down}'
+    return await new Promise((resolve) => {
+      exec(`osascript -e ${JSON.stringify(as)}`, (err, stdout, stderr) => {
+        if (err) {
+          // provide an actionable hint for the user
+          const errMsg = (stderr || err.message || String(err)).toString()
+          console.error('osascript paste failed', errMsg)
+          resolve({ ok: false, error: 'Paste failed: ' + errMsg + '. If this is macOS, please grant Accessibility permission to Terminal or the app hosting this process (System Settings → Privacy & Security → Accessibility).' })
+          return
+        }
+        resolve({ ok: true })
+      })
+    })
+  } catch (err) {
+    console.error('paste-into-front handler error', err)
     return { ok: false, error: String(err) }
   }
 })
