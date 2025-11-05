@@ -26,6 +26,19 @@
       <label><input id="autoTranscribe" type="checkbox" /> Auto-transcribe after saving recording</label>
     </div>
     <div style="margin-top:8px">
+      <label><input id="ollamaEnabled" type="checkbox" /> Polish transcripts with Ollama (experimental)</label>
+    </div>
+    <div>
+      <label>Ollama URL:<br/>
+        <input id="ollamaUrl" type="text" style="width:100%" placeholder="http://localhost:11434" />
+      </label>
+    </div>
+    <div>
+      <label>Ollama Model:<br/>
+        <input id="ollamaModel" type="text" style="width:100%" placeholder="llama3.2" />
+      </label>
+    </div>
+    <div style="margin-top:8px">
       <button id="saveSettingsBtn">Save Settings</button>
       <button id="testSettingsBtn">Test Settings</button>
       <div id="settingsResult" style="margin-top:8px; white-space:pre-wrap"></div>
