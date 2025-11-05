@@ -176,6 +176,7 @@ window.electronAPI.onRecordToggle((state) => {
       const ollamaModel = r && r.ollama_model ? r.ollama_model : 'llama3.2'
   const ollamaEnabled = r && r.ollama_enabled === true
   const autoPaste = r && r.auto_paste === true
+  const ffmpegPath = r && r.ffmpeg_path ? r.ffmpeg_path : ''
       
       // try to split into binary and model if possible
       const whisperBin = document.getElementById('whisperBin')
@@ -198,6 +199,9 @@ window.electronAPI.onRecordToggle((state) => {
         if (binMatch && whisperBin) whisperBin.value = binMatch[1]
         const mMatch = tpl.match(/-m\s+(?:"|')?([^"'\s]+)(?:"|')?/) 
         if (mMatch && modelPath) modelPath.value = mMatch[1]
+      // ffmpeg path
+      const ffmpegInput = document.getElementById('ffmpegPath')
+      if (ffmpegInput) ffmpegInput.value = ffmpegPath
       }
     } catch (err) {
       console.error('loadSettings error', err)
@@ -207,6 +211,7 @@ window.electronAPI.onRecordToggle((state) => {
   async function saveSettings () {
     const whisperBin = document.getElementById('whisperBin').value.trim()
     const modelPath = document.getElementById('modelPath').value.trim()
+    const ffmpegPath = document.getElementById('ffmpegPath').value.trim()
     const autoCheckbox = document.getElementById('autoTranscribe')
     const auto = autoCheckbox ? !!autoCheckbox.checked : false
     const ollamaEnabledCheckbox = document.getElementById('ollamaEnabled')
@@ -223,6 +228,7 @@ window.electronAPI.onRecordToggle((state) => {
     const r = await window.electronAPI.saveSettings({ 
       transcribe_cmd: tpl, 
       auto_transcribe: auto,
+      ffmpeg_path: ffmpegPath,
       ollama_enabled: ollamaEnabled,
       ollama_url: ollamaUrl,
       ollama_model: ollamaModel,
