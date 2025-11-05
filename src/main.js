@@ -6,6 +6,17 @@ const { exec } = require('child_process')
 const Store = require('electron-store')
 const store = new Store()
 
+// Dynamic import for fetch (node-fetch v3 is ESM only)
+let fetch
+;(async () => {
+  try {
+    const nodeFetch = await import('node-fetch')
+    fetch = nodeFetch.default
+  } catch (err) {
+    console.error('Failed to import node-fetch:', err)
+  }
+})()
+
 let mainWindow = null
 let tray = null
 let isRecording = false
@@ -59,7 +70,16 @@ ipcMain.handle('app-version', () => app.getVersion())
 ipcMain.handle('get-settings', () => {
   const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || ''
   const auto = store.get('auto_transcribe') === true
-  return { transcribe_cmd: tpl, auto_transcribe: auto }
+  const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434'
+  const ollamaModel = store.get('ollama_model') || 'llama3.2'
+  const ollamaEnabled = store.get('ollama_enabled') === true
+  return { 
+    transcribe_cmd: tpl, 
+    auto_transcribe: auto,
+    ollama_url: ollamaUrl,
+    ollama_model: ollamaModel,
+    ollama_enabled: ollamaEnabled
+  }
 })
 
 ipcMain.handle('save-settings', (event, settings) => {
@@ -67,6 +87,9 @@ ipcMain.handle('save-settings', (event, settings) => {
     if (!settings || typeof settings !== 'object') return { ok: false, error: 'Invalid settings' }
     if (typeof settings.transcribe_cmd === 'string') store.set('transcribe_cmd', settings.transcribe_cmd)
     if (typeof settings.auto_transcribe === 'boolean') store.set('auto_transcribe', settings.auto_transcribe)
+    if (typeof settings.ollama_url === 'string') store.set('ollama_url', settings.ollama_url)
+    if (typeof settings.ollama_model === 'string') store.set('ollama_model', settings.ollama_model)
+    if (typeof settings.ollama_enabled === 'boolean') store.set('ollama_enabled', settings.ollama_enabled)
     return { ok: true }
   } catch (err) {
     return { ok: false, error: String(err) }
@@ -134,7 +157,35 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
     if (auto) {
       try {
         const tx = await transcribeWebm(filename)
-        if (tx && tx.ok) return { ok: true, path: filename, autoTranscribed: true, text: tx.text, wav: tx.wav }
+        if (tx && tx.ok) {
+          // Check if Ollama polishing is enabled
+          const ollamaEnabled = store.get('ollama_enabled') === true
+          let finalText = tx.text
+          let polishError = null
+          
+          if (ollamaEnabled && tx.text) {
+            try {
+              const polished = await polishWithOllama(tx.text)
+              if (polished && polished.ok) {
+                finalText = polished.text
+              } else {
+                polishError = polished && polished.error ? polished.error : 'Ollama polish failed'
+              }
+            } catch (err) {
+              polishError = String(err)
+            }
+          }
+          
+          return { 
+            ok: true, 
+            path: filename, 
+            autoTranscribed: true, 
+            text: finalText, 
+            originalText: ollamaEnabled ? tx.text : undefined,
+            polishError,
+            wav: tx.wav 
+          }
+        }
         return { ok: true, path: filename, autoTranscribed: true, error: tx && tx.error ? tx.error : 'transcription failed' }
       } catch (err) {
         return { ok: true, path: filename, autoTranscribed: true, error: String(err) }
@@ -200,6 +251,42 @@ async function transcribeWebm (webmPath) {
     return { ok: true, text: transcript, wav: wavPath }
   } catch (err) {
     console.error('transcribeWebm error', err)
+    return { ok: false, error: String(err) }
+  }
+}
+
+// helper: polish transcript text using Ollama API
+async function polishWithOllama (text) {
+  try {
+    if (!fetch) {
+      throw new Error('fetch not available - node-fetch import failed')
+    }
+    
+    const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434'
+    const ollamaModel = store.get('ollama_model') || 'llama3.2'
+    
+    const prompt = `Please clean up and improve this voice transcript. Fix any grammar, punctuation, and formatting issues while preserving the original meaning:\n\n${text}`
+    
+    const response = await fetch(`${ollamaUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: ollamaModel,
+        prompt: prompt,
+        stream: false
+      })
+    })
+    
+    if (!response.ok) {
+      throw new Error(`Ollama API error: ${response.status} ${response.statusText}`)
+    }
+    
+    const data = await response.json()
+    const polishedText = data.response || text
+    
+    return { ok: true, text: polishedText }
+  } catch (err) {
+    console.error('polishWithOllama error', err)
     return { ok: false, error: String(err) }
   }
 }

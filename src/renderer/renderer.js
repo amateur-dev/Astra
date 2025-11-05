@@ -37,7 +37,14 @@ async function startRecording () {
                 transcriptEl.textContent = result.text || '(empty)'
                 transcriptEl.style.display = 'block'
               }
-              status.textContent = `Auto-transcribed (wav: ${result.wav || 'unknown'})`
+              let statusMsg = `Auto-transcribed (wav: ${result.wav || 'unknown'})`
+              if (result.originalText && result.originalText !== result.text) {
+                statusMsg += ' [Polished by Ollama]'
+              }
+              if (result.polishError) {
+                statusMsg += ` [Polish error: ${result.polishError}]`
+              }
+              status.textContent = statusMsg
             } else if (result.error) {
               status.textContent = `Auto-transcribe error: ${result.error}`
             }
@@ -118,11 +125,23 @@ window.electronAPI.onRecordToggle((state) => {
       const r = await window.electronAPI.getSettings()
       const tpl = r && r.transcribe_cmd ? r.transcribe_cmd : ''
       const auto = r && r.auto_transcribe === true
+      const ollamaUrl = r && r.ollama_url ? r.ollama_url : 'http://localhost:11434'
+      const ollamaModel = r && r.ollama_model ? r.ollama_model : 'llama3.2'
+      const ollamaEnabled = r && r.ollama_enabled === true
+      
       // try to split into binary and model if possible
       const whisperBin = document.getElementById('whisperBin')
       const modelPath = document.getElementById('modelPath')
       const autoCheckbox = document.getElementById('autoTranscribe')
+      const ollamaEnabledCheckbox = document.getElementById('ollamaEnabled')
+      const ollamaUrlInput = document.getElementById('ollamaUrl')
+      const ollamaModelInput = document.getElementById('ollamaModel')
+      
       if (autoCheckbox) autoCheckbox.checked = !!auto
+      if (ollamaEnabledCheckbox) ollamaEnabledCheckbox.checked = !!ollamaEnabled
+      if (ollamaUrlInput) ollamaUrlInput.value = ollamaUrl
+      if (ollamaModelInput) ollamaModelInput.value = ollamaModel
+      
       if (tpl) {
         // crude parsing: first token is binary, -m <path> for model
         const binMatch = tpl.match(/^\s*(?:"|')?(.*?)(?:"|')?(?:\s|$)/)
@@ -140,12 +159,23 @@ window.electronAPI.onRecordToggle((state) => {
     const modelPath = document.getElementById('modelPath').value.trim()
     const autoCheckbox = document.getElementById('autoTranscribe')
     const auto = autoCheckbox ? !!autoCheckbox.checked : false
+    const ollamaEnabledCheckbox = document.getElementById('ollamaEnabled')
+    const ollamaEnabled = ollamaEnabledCheckbox ? !!ollamaEnabledCheckbox.checked : false
+    const ollamaUrl = document.getElementById('ollamaUrl').value.trim() || 'http://localhost:11434'
+    const ollamaModel = document.getElementById('ollamaModel').value.trim() || 'llama3.2'
+    
     if (!whisperBin || !modelPath) {
       document.getElementById('settingsResult').textContent = 'Please provide both binary and model path.'
       return
     }
     const tpl = `${whisperBin} -m ${modelPath} -f {wav}`
-    const r = await window.electronAPI.saveSettings({ transcribe_cmd: tpl, auto_transcribe: auto })
+    const r = await window.electronAPI.saveSettings({ 
+      transcribe_cmd: tpl, 
+      auto_transcribe: auto,
+      ollama_enabled: ollamaEnabled,
+      ollama_url: ollamaUrl,
+      ollama_model: ollamaModel
+    })
     if (r && r.ok) document.getElementById('settingsResult').textContent = 'Saved.'
     else document.getElementById('settingsResult').textContent = `Save failed: ${r && r.error ? r.error : 'unknown'}`
   }
