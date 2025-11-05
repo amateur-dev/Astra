@@ -261,30 +261,53 @@ async function polishWithOllama (text) {
     if (!fetch) {
       throw new Error('fetch not available - node-fetch import failed')
     }
-    
-    const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434'
+
+    const configuredUrl = store.get('ollama_url') || 'http://localhost:11434'
     const ollamaModel = store.get('ollama_model') || 'llama3.2'
-    
     const prompt = `Please clean up and improve this voice transcript. Fix any grammar, punctuation, and formatting issues while preserving the original meaning:\n\n${text}`
-    
-    const response = await fetch(`${ollamaUrl}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: ollamaModel,
-        prompt: prompt,
-        stream: false
-      })
-    })
-    
-    if (!response.ok) {
-      throw new Error(`Ollama API error: ${response.status} ${response.statusText}`)
+
+    // Build an ordered list of candidate base URLs to try.
+    // If the configured URL uses localhost, add an explicit 127.0.0.1 fallback.
+    const candidates = []
+    const normalized = configuredUrl.trim().replace(/\/+$/, '')
+    candidates.push(normalized)
+    try {
+      const urlObj = new URL(normalized)
+      if (urlObj.hostname === 'localhost' && !normalized.includes('127.0.0.1')) {
+        const ipv4 = normalized.replace('localhost', '127.0.0.1')
+        candidates.push(ipv4)
+      }
+    } catch (e) {
+      // if malformed, still try the raw configured value
     }
-    
-    const data = await response.json()
-    const polishedText = data.response || text
-    
-    return { ok: true, text: polishedText }
+
+    const errors = {}
+    for (const base of candidates) {
+      try {
+        const url = `${base.replace(/\/$/, '')}/api/generate`
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: ollamaModel, prompt, stream: false }),
+          // small timeout not directly supported by node-fetch v3; rely on default
+        })
+        if (!response.ok) {
+          const txt = await response.text().catch(() => '')
+          errors[base] = `HTTP ${response.status} ${response.statusText} ${txt}`
+          continue
+        }
+        const data = await response.json()
+        const polishedText = data.response || text
+        return { ok: true, text: polishedText, used: base, tried: candidates }
+      } catch (err) {
+        // record the error and try next candidate
+        errors[base] = String(err && err.message ? err.message : err)
+        continue
+      }
+    }
+
+    // none succeeded
+    return { ok: false, error: `All Ollama attempts failed`, tried: candidates, errors }
   } catch (err) {
     console.error('polishWithOllama error', err)
     return { ok: false, error: String(err) }
