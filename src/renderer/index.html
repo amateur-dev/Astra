@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Voice Hotkey (Electron)</title>
+  </head>
+  <body>
+    <h2>Voice Hotkey — MVP</h2>
+    <div id="status">Idle</div>
+    <button id="recordBtn">Start Recording</button>
+    <button id="transcribeBtn" disabled>Transcribe</button>
+    <pre id="transcript" style="white-space:pre-wrap; background:#f6f6f6; padding:8px; border-radius:4px; display:none"></pre>
+    <div style="margin-top:8px">
+      <button id="pasteBtn" disabled>Paste into Front App</button>
+    </div>
+    <hr />
+    <h3>Settings</h3>
+    <div>
+      <label>Whisper binary path:<br/>
+        <input id="whisperBin" type="text" style="width:100%" placeholder="/path/to/whisper-cli" />
+      </label>
+    </div>
+    <div>
+      <label>Model path (-m):<br/>
+        <input id="modelPath" type="text" style="width:100%" placeholder="/Users/you/models/ggml-tiny.en.bin" />
+      </label>
+    </div>
+    <div style="margin-top:8px">
+      <label><input id="autoTranscribe" type="checkbox" /> Auto-transcribe after saving recording</label>
+    </div>
+    <div style="margin-top:8px">
+      <label><input id="ollamaEnabled" type="checkbox" /> Polish transcripts with Ollama (experimental)</label>
+    </div>
+    <div>
+      <label>Ollama URL:<br/>
+        <input id="ollamaUrl" type="text" style="width:100%" placeholder="http://localhost:11434" />
+      </label>
+    </div>
+    <div>
+      <label>Ollama Model:<br/>
+        <input id="ollamaModel" type="text" style="width:100%" placeholder="llama3.2" />
+      </label>
+    </div>
+    <div style="margin-top:8px">
+      <label><input id="autoPaste" type="checkbox" /> Auto-paste into front app after transcribe</label>
+    </div>
+    <div style="margin-top:8px">
+      <button id="saveSettingsBtn">Save Settings</button>
+      <button id="testSettingsBtn">Test Settings</button>
+      <div id="settingsResult" style="margin-top:8px; white-space:pre-wrap"></div>
+    </div>
+    <script src="renderer.js"></script>
+  </body>
+</html>

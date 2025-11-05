@@ -1,0 +1,28 @@
+{
+  "name": "voice-hotkey-electron",
+  "version": "0.1.0",
+  "description": "Minimal Electron-based voice-to-text tray app (rewrite)",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --mac",
+    "dist": "electron-builder --mac --x64"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^25.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "dependencies": {
+    "electron-store": "^8.0.0",
+    "node-fetch": "^3.3.1"
+  },
+  "build": {
+    "appId": "com.example.voicehotkey",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dmg"]
+    }
+  }
+}
