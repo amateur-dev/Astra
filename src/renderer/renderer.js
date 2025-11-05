@@ -37,6 +37,9 @@ async function startRecording () {
                 transcriptEl.textContent = result.text || '(empty)'
                 transcriptEl.style.display = 'block'
               }
+              // enable paste button when transcript appears
+              const pasteBtn = document.getElementById('pasteBtn')
+              if (pasteBtn) pasteBtn.disabled = false
               let statusMsg = `Auto-transcribed (wav: ${result.wav || 'unknown'})`
               if (result.originalText && result.originalText !== result.text) {
                 statusMsg += ' [Polished by Ollama]'
@@ -158,7 +161,8 @@ window.electronAPI.onRecordToggle((state) => {
       const auto = r && r.auto_transcribe === true
       const ollamaUrl = r && r.ollama_url ? r.ollama_url : 'http://localhost:11434'
       const ollamaModel = r && r.ollama_model ? r.ollama_model : 'llama3.2'
-      const ollamaEnabled = r && r.ollama_enabled === true
+  const ollamaEnabled = r && r.ollama_enabled === true
+  const autoPaste = r && r.auto_paste === true
       
       // try to split into binary and model if possible
       const whisperBin = document.getElementById('whisperBin')
@@ -166,12 +170,14 @@ window.electronAPI.onRecordToggle((state) => {
       const autoCheckbox = document.getElementById('autoTranscribe')
       const ollamaEnabledCheckbox = document.getElementById('ollamaEnabled')
       const ollamaUrlInput = document.getElementById('ollamaUrl')
-      const ollamaModelInput = document.getElementById('ollamaModel')
+  const ollamaModelInput = document.getElementById('ollamaModel')
+  const autoPasteCheckbox = document.getElementById('autoPaste')
       
-      if (autoCheckbox) autoCheckbox.checked = !!auto
-      if (ollamaEnabledCheckbox) ollamaEnabledCheckbox.checked = !!ollamaEnabled
-      if (ollamaUrlInput) ollamaUrlInput.value = ollamaUrl
-      if (ollamaModelInput) ollamaModelInput.value = ollamaModel
+  if (autoCheckbox) autoCheckbox.checked = !!auto
+  if (ollamaEnabledCheckbox) ollamaEnabledCheckbox.checked = !!ollamaEnabled
+  if (ollamaUrlInput) ollamaUrlInput.value = ollamaUrl
+  if (ollamaModelInput) ollamaModelInput.value = ollamaModel
+  if (autoPasteCheckbox) autoPasteCheckbox.checked = !!autoPaste
       
       if (tpl) {
         // crude parsing: first token is binary, -m <path> for model
@@ -193,7 +199,8 @@ window.electronAPI.onRecordToggle((state) => {
     const ollamaEnabledCheckbox = document.getElementById('ollamaEnabled')
     const ollamaEnabled = ollamaEnabledCheckbox ? !!ollamaEnabledCheckbox.checked : false
     const ollamaUrl = document.getElementById('ollamaUrl').value.trim() || 'http://localhost:11434'
-    const ollamaModel = document.getElementById('ollamaModel').value.trim() || 'llama3.2'
+  const ollamaModel = document.getElementById('ollamaModel').value.trim() || 'llama3.2'
+  const autoPaste = document.getElementById('autoPaste') ? !!document.getElementById('autoPaste').checked : false
     
     if (!whisperBin || !modelPath) {
       document.getElementById('settingsResult').textContent = 'Please provide both binary and model path.'
@@ -205,7 +212,8 @@ window.electronAPI.onRecordToggle((state) => {
       auto_transcribe: auto,
       ollama_enabled: ollamaEnabled,
       ollama_url: ollamaUrl,
-      ollama_model: ollamaModel
+      ollama_model: ollamaModel,
+      auto_paste: autoPaste
     })
     if (r && r.ok) document.getElementById('settingsResult').textContent = 'Saved.'
     else document.getElementById('settingsResult').textContent = `Save failed: ${r && r.error ? r.error : 'unknown'}`

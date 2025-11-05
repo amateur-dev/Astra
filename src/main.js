@@ -48,8 +48,8 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
 
-  // register a simple global shortcut: Cmd+Shift+R to toggle recording
-  const ret = globalShortcut.register('CommandOrControl+Shift+R', () => {
+  // register a simple global shortcut: Cmd+Shift+V to toggle recording
+  const ret = globalShortcut.register('CommandOrControl+Shift+V', () => {
     isRecording = !isRecording
     mainWindow.webContents.send('record-toggle', isRecording)
   })
@@ -73,12 +73,14 @@ ipcMain.handle('get-settings', () => {
   const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434'
   const ollamaModel = store.get('ollama_model') || 'llama3.2'
   const ollamaEnabled = store.get('ollama_enabled') === true
+  const autoPaste = store.get('auto_paste') === true
   return { 
     transcribe_cmd: tpl, 
     auto_transcribe: auto,
     ollama_url: ollamaUrl,
     ollama_model: ollamaModel,
-    ollama_enabled: ollamaEnabled
+    ollama_enabled: ollamaEnabled,
+    auto_paste: autoPaste
   }
 })
 
@@ -90,6 +92,7 @@ ipcMain.handle('save-settings', (event, settings) => {
     if (typeof settings.ollama_url === 'string') store.set('ollama_url', settings.ollama_url)
     if (typeof settings.ollama_model === 'string') store.set('ollama_model', settings.ollama_model)
     if (typeof settings.ollama_enabled === 'boolean') store.set('ollama_enabled', settings.ollama_enabled)
+    if (typeof settings.auto_paste === 'boolean') store.set('auto_paste', settings.auto_paste)
     return { ok: true }
   } catch (err) {
     return { ok: false, error: String(err) }
@@ -200,14 +203,37 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
               const polished = await polishWithOllama(tx.text)
               if (polished && polished.ok) {
                 finalText = polished.text
+                // include metadata about polishing
+                polishUsed = polished.used || null
+                polishTried = polished.tried || null
+                polishErrors = polished.errors || null
               } else {
                 polishError = polished && polished.error ? polished.error : 'Ollama polish failed'
+                polishTried = polished && polished.tried ? polished.tried : null
+                polishErrors = polished && polished.errors ? polished.errors : null
               }
             } catch (err) {
               polishError = String(err)
             }
           }
-          
+          // If auto_paste is enabled, attempt to paste the final text into the front app
+          let pasteResult = null
+          const autoPaste = store.get('auto_paste') === true
+          if (autoPaste && finalText) {
+            try {
+              try { clipboard.writeText(finalText) } catch (e) { /* ignore */ }
+              const as = 'tell application "System Events" to keystroke "v" using {command down}'
+              pasteResult = await new Promise((resolve) => {
+                exec(`osascript -e ${JSON.stringify(as)}`, (err, stdout, stderr) => {
+                  if (err) return resolve({ ok: false, error: (stderr || err.message || String(err)).toString() })
+                  resolve({ ok: true })
+                })
+              })
+            } catch (err) {
+              pasteResult = { ok: false, error: String(err) }
+            }
+          }
+
           return { 
             ok: true, 
             path: filename, 
@@ -215,6 +241,10 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
             text: finalText, 
             originalText: ollamaEnabled ? tx.text : undefined,
             polishError,
+            polishUsed: polishUsed || null,
+            polishTriedHosts: polishTried || null,
+            polishErrors: polishErrors || null,
+            pasteResult,
             wav: tx.wav 
           }
         }
