@@ -44,6 +44,11 @@ async function startRecording () {
               if (result.polishError) {
                 statusMsg += ` [Polish error: ${result.polishError}]`
               }
+              // If polishing failed and we have retry info, show an actionable hint
+              if (result.polishError && result.polishTriedHosts) {
+                const tried = result.polishTriedHosts.join(', ')
+                statusMsg += ` — Ollama unreachable at configured host; tried ${tried}. Start Ollama (ollama serve) or set Ollama URL to http://127.0.0.1:11434 in Settings.`
+              }
               status.textContent = statusMsg
             } else if (result.error) {
               status.textContent = `Auto-transcribe error: ${result.error}`
