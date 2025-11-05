@@ -28,7 +28,68 @@ The LLM is **invoked automatically** after transcription to polish the text (sma
 
 ### Step 1: Setup Whisper (Speech-to-Text)
 
-The app will automatically download Whisper.cpp when you first use it:
+This document explains how to build or obtain the local speech-to-text binary (whisper.cpp examples) and how to prepare a local Ollama instance for optional text polishing.
+
+1) whisper.cpp (local STT)
+
+- Clone and build (recommended):
+
+```bash
+git clone https://github.com/ggerganov/whisper.cpp.git
+cd whisper.cpp
+mkdir build && cd build
+cmake ..
+make -j$(sysctl -n hw.ncpu)
+```
+
+- The example CLI binary will be at `whisper.cpp/main` (or similar) depending on build flags. Another common fork provides `bin/whisper.cpp` or `main`.
+
+- Download a ggml model (for English):
+
+Example models:
+- ggml-tiny.en.bin — very small, fast, lower quality
+- ggml-base.en.bin — balanced
+- ggml-large.bin — higher quality, larger RAM
+
+Download from the releases linked in the project README or from a mirror (be mindful of bandwidth).
+
+- Example transcription command template (the app requires a `{wav}` placeholder which will be replaced with a WAV file path):
+
+```bash
+/path/to/whisper.cpp/main -m /path/to/ggml-tiny.en.bin -f {wav}
+```
+
+Set that in the app Settings or export as an env var before starting the app:
+
+```bash
+export TRANSCRIBE_CMD="/path/to/whisper.cpp/main -m /path/to/ggml-tiny.en.bin -f {wav}"
+```
+
+2) ffmpeg
+
+The app converts the recorded WebM to WAV using `ffmpeg`. Install with Homebrew on macOS:
+
+```bash
+brew install ffmpeg
+```
+
+3) Ollama (optional polishing)
+
+Ollama runs a local HTTP server which the app can call to "polish" or reformat transcripts. Installing Ollama is outside the scope of this repo, but basic usage is:
+
+```bash
+# install ollama following instructions on https://ollama.ai
+ollama pull llama3.2
+ollama serve
+```
+
+Example API usage performed by the app (internal): POST to `/v1/generate` with a prompt that contains the transcript; the response is returned to the renderer for display/paste.
+
+Notes
+
+- If Ollama is configured as `http://localhost:11434` but your host resolves `localhost` to `::1` (IPv6) and Ollama is listening on 127.0.0.1, the app will retry with `http://127.0.0.1:11434` and include diagnostics about which hosts were tried.
+- Test your transcription command manually on a WAV file to ensure it produces text on stdout before configuring it in the app.
+
 
 1. Launch Voice Hotkey App
 2. Click the menu bar icon
