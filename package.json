@@ -23,6 +23,13 @@
     "mac": {
       "category": "public.app-category.productivity",
       "target": ["dmg"]
-    }
+    },
+    "extraResources": [
+      {
+        "from": "build/ffmpeg",
+        "to": "ffmpeg",
+        "filter": ["**/*"]
+      }
+    ]
   }
 }
