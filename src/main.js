@@ -70,6 +70,7 @@ ipcMain.handle('app-version', () => app.getVersion())
 ipcMain.handle('get-settings', () => {
   const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || ''
   const auto = store.get('auto_transcribe') === true
+  const ffmpegPath = store.get('ffmpeg_path') || ''
   const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434'
   const ollamaModel = store.get('ollama_model') || 'llama3.2'
   const ollamaEnabled = store.get('ollama_enabled') === true
@@ -77,6 +78,7 @@ ipcMain.handle('get-settings', () => {
   return { 
     transcribe_cmd: tpl, 
     auto_transcribe: auto,
+    ffmpeg_path: ffmpegPath,
     ollama_url: ollamaUrl,
     ollama_model: ollamaModel,
     ollama_enabled: ollamaEnabled,
@@ -89,6 +91,7 @@ ipcMain.handle('save-settings', (event, settings) => {
     if (!settings || typeof settings !== 'object') return { ok: false, error: 'Invalid settings' }
     if (typeof settings.transcribe_cmd === 'string') store.set('transcribe_cmd', settings.transcribe_cmd)
     if (typeof settings.auto_transcribe === 'boolean') store.set('auto_transcribe', settings.auto_transcribe)
+  if (typeof settings.ffmpeg_path === 'string') store.set('ffmpeg_path', settings.ffmpeg_path)
     if (typeof settings.ollama_url === 'string') store.set('ollama_url', settings.ollama_url)
     if (typeof settings.ollama_model === 'string') store.set('ollama_model', settings.ollama_model)
     if (typeof settings.ollama_enabled === 'boolean') store.set('ollama_enabled', settings.ollama_enabled)
@@ -280,10 +283,14 @@ ipcMain.handle('transcribe', async (event, webmPath) => {
 // helper: convert webm -> wav and run configured transcription command template
 async function transcribeWebm (webmPath) {
   try {
-    const ffmpegCmd = 'ffmpeg'
+    // find ffmpeg executable (bundled, user-configured, or system)
+    const ffmpegCmd = await findFfmpeg()
     const wavPath = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.wav`)
+    if (!ffmpegCmd) {
+      return { ok: false, error: 'ffmpeg not found. Install ffmpeg (Homebrew: `brew install ffmpeg`) or bundle ffmpeg in the app.' }
+    }
     await new Promise((resolve, reject) => {
-      const cmd = `${ffmpegCmd} -y -i ${JSON.stringify(webmPath)} -ar 16000 -ac 1 ${JSON.stringify(wavPath)}`
+      const cmd = `${JSON.stringify(ffmpegCmd)} -y -i ${JSON.stringify(webmPath)} -ar 16000 -ac 1 ${JSON.stringify(wavPath)}`
       exec(cmd, (err, stdout, stderr) => {
         if (err) {
           console.error('ffmpeg failed', err, stderr)
@@ -373,5 +380,52 @@ async function polishWithOllama (text) {
   } catch (err) {
     console.error('polishWithOllama error', err)
     return { ok: false, error: String(err) }
+  }
+}
+
+// helper: locate ffmpeg binary. Checks user-configured path, system paths, and bundled resources
+async function findFfmpeg () {
+  try {
+    const configured = store.get('ffmpeg_path') || process.env.FFMPEG_PATH || ''
+    const candidates = []
+    if (configured) candidates.push(configured)
+
+    // prefer which if available
+    const whichPath = await new Promise((resolve) => {
+      exec('which ffmpeg', (err, stdout) => {
+        if (!err && stdout) return resolve(stdout.toString().trim())
+        resolve(null)
+      })
+    })
+    if (whichPath) candidates.push(whichPath)
+
+    // common Homebrew /usr/local locations
+    candidates.push('/opt/homebrew/bin/ffmpeg')
+    candidates.push('/usr/local/bin/ffmpeg')
+    candidates.push('/usr/bin/ffmpeg')
+    candidates.push('/bin/ffmpeg')
+
+    // check for bundled ffmpeg in the app resources (extraResources -> Resources/ffmpeg)
+    try {
+      const res1 = path.join(process.resourcesPath || '', 'ffmpeg', 'ffmpeg')
+      candidates.push(res1)
+      const res2 = path.join(process.resourcesPath || '', 'build', 'ffmpeg', 'ffmpeg')
+      candidates.push(res2)
+    } catch (e) {
+      // ignore
+    }
+
+    for (const c of candidates) {
+      if (!c) continue
+      try {
+        if (fs.existsSync(c)) return c
+      } catch (e) {
+        // ignore
+      }
+    }
+    return null
+  } catch (err) {
+    console.error('findFfmpeg error', err)
+    return null
   }
 }
