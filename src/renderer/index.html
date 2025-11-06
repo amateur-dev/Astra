@@ -11,9 +11,10 @@
       Microphone permission: <span id="micStatus">unknown</span>
       <button id="openMicSettingsBtn" style="margin-left:8px">Open Microphone Settings</button>
     </div>
-    <button id="recordBtn">Start Recording</button>
+  <button id="recordBtn">Start Recording</button>
     <button id="transcribeBtn" disabled>Transcribe</button>
     <pre id="transcript" style="white-space:pre-wrap; background:#f6f6f6; padding:8px; border-radius:4px; display:none"></pre>
+    <!-- Live capture runs in the background and is not shown in the UI when using hotkey flow -->
     <div style="margin-top:8px">
       <button id="pasteBtn" disabled>Paste into Front App</button>
     </div>

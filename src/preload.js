@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   onRecordToggle: (cb) => ipcRenderer.on('record-toggle', (event, state) => cb(state)),
+  onLivePatch: (cb) => ipcRenderer.on('live-patch', (event, patch) => cb(patch)),
   getAppVersion: () => ipcRenderer.invoke('app-version')
   ,
   saveRecording: (uint8Array) => ipcRenderer.invoke('save-recording', uint8Array)
@@ -14,6 +15,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ,
   // paste integration
   pasteToFront: (text) => ipcRenderer.invoke('paste-into-front', text)
+  ,
+  // send live audio chunk (Uint8Array) to main for relaying or saving
+  sendAudioChunk: (uint8Array) => ipcRenderer.invoke('send-audio-chunk', uint8Array)
   ,
   // open system microphone privacy settings
   openMicrophoneSettings: () => ipcRenderer.invoke('open-microphone-settings')

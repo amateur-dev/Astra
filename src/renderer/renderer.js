@@ -4,7 +4,53 @@ let recording = false
 let mediaRecorder = null
 let chunks = []
 let currentStream = null
+let liveMediaRecorder = null
+// Live UI/logging removed for hotkey mode. Live capture will run in background when recording is started via hotkey.
+// PCM capture variables
+let audioCtx = null
+let sourceNode = null
+let processorNode = null
+let pcmBuffer = []
+// Increase PCM chunk size to ~10 seconds per user request for larger background chunks
+const PCM_TARGET_SECONDS = 10.0 // build ~10s WAVs
 
+// mock STT removed for hotkey/background flow
+
+// Encode Float32Array PCM to 16-bit WAV Uint8Array
+function encodeWAV (samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2)
+  const view = new DataView(buffer)
+
+  function writeString (view, offset, string) {
+    for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i))
+  }
+
+  /* RIFF identifier */ writeString(view, 0, 'RIFF')
+  /* file length */ view.setUint32(4, 36 + samples.length * 2, true)
+  /* RIFF type */ writeString(view, 8, 'WAVE')
+  /* format chunk identifier */ writeString(view, 12, 'fmt ')
+  /* format chunk length */ view.setUint32(16, 16, true)
+  /* sample format (raw) */ view.setUint16(20, 1, true)
+  /* channel count */ view.setUint16(22, 1, true)
+  /* sample rate */ view.setUint32(24, sampleRate, true)
+  /* byte rate (sampleRate * blockAlign) */ view.setUint32(28, sampleRate * 2, true)
+  /* block align (channel count * bytes per sample) */ view.setUint16(32, 2, true)
+  /* bits per sample */ view.setUint16(34, 16, true)
+  /* data chunk identifier */ writeString(view, 36, 'data')
+  /* data chunk length */ view.setUint32(40, samples.length * 2, true)
+
+  // write PCM samples
+  let offset = 44
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    let s = Math.max(-1, Math.min(1, samples[i]))
+    s = s < 0 ? s * 0x8000 : s * 0x7FFF
+    view.setInt16(offset, s, true)
+  }
+  return new Uint8Array(buffer)
+}
+
+
+// Keep existing record button behavior for manual testing, but hotkey toggles will drive recording in normal use.
 btn.addEventListener('click', () => toggleRecording())
 
 async function startRecording () {
@@ -43,25 +89,20 @@ async function startRecording () {
             transBtn.disabled = false
             transBtn.dataset.path = result.path
           }
-          // if main auto-transcribed, show transcript immediately
+          // If main already auto-transcribed, show transcript immediately.
+          // Otherwise, run a final transcribe step now so stopping via hotkey auto-finalizes.
+          const transcriptEl = document.getElementById('transcript')
+          const pasteBtn = document.getElementById('pasteBtn')
           if (result.autoTranscribed) {
             if (result.text) {
-              const transcriptEl = document.getElementById('transcript')
               if (transcriptEl) {
                 transcriptEl.textContent = result.text || '(empty)'
                 transcriptEl.style.display = 'block'
               }
-              // enable paste button when transcript appears
-              const pasteBtn = document.getElementById('pasteBtn')
               if (pasteBtn) pasteBtn.disabled = false
               let statusMsg = `Auto-transcribed (wav: ${result.wav || 'unknown'})`
-              if (result.originalText && result.originalText !== result.text) {
-                statusMsg += ' [Polished by Ollama]'
-              }
-              if (result.polishError) {
-                statusMsg += ` [Polish error: ${result.polishError}]`
-              }
-              // If polishing failed and we have retry info, show an actionable hint
+              if (result.originalText && result.originalText !== result.text) statusMsg += ' [Polished by Ollama]'
+              if (result.polishError) statusMsg += ` [Polish error: ${result.polishError}]`
               if (result.polishError && result.polishTriedHosts) {
                 const tried = result.polishTriedHosts.join(', ')
                 statusMsg += ` — Ollama unreachable at configured host; tried ${tried}. Start Ollama (ollama serve) or set Ollama URL to http://127.0.0.1:11434 in Settings.`
@@ -69,6 +110,32 @@ async function startRecording () {
               status.textContent = statusMsg
             } else if (result.error) {
               status.textContent = `Auto-transcribe error: ${result.error}`
+            }
+          } else {
+            // Run a final transcription now (this ensures hotkey stop finalizes)
+            try {
+              status.textContent = 'Finalizing transcription...'
+              const r = await window.electronAPI.transcribeFile(result.path)
+              if (r && r.ok) {
+                if (r.text && String(r.text).trim().length > 0) {
+                  status.textContent = `Transcribed (wav: ${r.wav})`
+                  if (transcriptEl) {
+                    transcriptEl.textContent = r.text
+                    transcriptEl.style.display = 'block'
+                    if (pasteBtn) pasteBtn.disabled = false
+                  }
+                } else {
+                  status.textContent = 'No speech detected in recording (transcript empty).'
+                  if (transcriptEl) {
+                    transcriptEl.textContent = '(empty)'
+                    transcriptEl.style.display = 'block'
+                  }
+                }
+              } else {
+                status.textContent = `Transcription failed: ${r && r.error ? r.error : 'unknown'}`
+              }
+            } catch (err) {
+              status.textContent = 'Transcription failed: ' + err
             }
           }
         } else {
@@ -84,6 +151,41 @@ async function startRecording () {
     recording = true
     status.textContent = 'Recording...'
     btn.textContent = 'Stop Recording'
+    // Also start background PCM capture so the app can send larger WAV chunks while recording.
+    try {
+      // reset buffers/state
+      pcmBuffer = []
+      // create an AudioContext + ScriptProcessor to capture raw PCM for robust transcription
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+      sourceNode = audioCtx.createMediaStreamSource(stream)
+      processorNode = audioCtx.createScriptProcessor(4096, 1, 1)
+      processorNode.onaudioprocess = (ev) => {
+        try {
+          const ch = ev.inputBuffer.getChannelData(0)
+          // copy floats
+          pcmBuffer.push(new Float32Array(ch))
+          // estimate collected seconds
+          const collected = pcmBuffer.reduce((s, a) => s + a.length, 0) / (audioCtx.sampleRate || 48000)
+          if (collected >= PCM_TARGET_SECONDS) {
+            // merge and encode to WAV
+            const totalLen = pcmBuffer.reduce((s, a) => s + a.length, 0)
+            const merged = new Float32Array(totalLen)
+            let offset = 0
+            for (const part of pcmBuffer) { merged.set(part, offset); offset += part.length }
+            pcmBuffer = []
+            const wavBytes = encodeWAV(merged, audioCtx.sampleRate || 48000)
+            // send WAV bytes to main (non-blocking); background-only (no UI shown)
+            try {
+              window.electronAPI.sendAudioChunk && window.electronAPI.sendAudioChunk(wavBytes).catch(() => {})
+            } catch (e) { /* ignore */ }
+          }
+        } catch (e) { console.warn('processor error', e) }
+      }
+      sourceNode.connect(processorNode)
+      processorNode.connect(audioCtx.destination)
+    } catch (e) {
+      console.warn('AudioContext setup failed', e)
+    }
   } catch (err) {
     status.textContent = 'Microphone access denied or unavailable'
     console.error('startRecording error', err)
@@ -105,6 +207,33 @@ function stopRecording () {
     }
     mediaRecorder.stop()
   }
+  // shutdown background AudioContext and flush any remaining PCM as a final WAV chunk
+  try {
+    if (processorNode) {
+      try { processorNode.disconnect() } catch (e) {}
+      try { processorNode.onaudioprocess = null } catch (e) {}
+      processorNode = null
+    }
+    if (sourceNode) { try { sourceNode.disconnect() } catch (e) {} sourceNode = null }
+    if (audioCtx) {
+      // flush pcmBuffer
+      if (pcmBuffer && pcmBuffer.length > 0) {
+        const totalLen = pcmBuffer.reduce((s, a) => s + a.length, 0)
+        const merged = new Float32Array(totalLen)
+        let offset = 0
+        for (const part of pcmBuffer) { merged.set(part, offset); offset += part.length }
+        pcmBuffer = []
+        const wavBytes = encodeWAV(merged, audioCtx.sampleRate || 48000)
+        try {
+          window.electronAPI.sendAudioChunk && window.electronAPI.sendAudioChunk(wavBytes).catch(() => {})
+        } catch (e) { /* ignore */ }
+      }
+      try { audioCtx.close() } catch (e) {}
+      audioCtx = null
+    }
+  } catch (e) {
+    console.warn('AudioContext shutdown failed', e)
+  }
   recording = false
   status.textContent = 'Stopping...'
   btn.textContent = 'Start Recording'
@@ -120,6 +249,32 @@ window.electronAPI.onRecordToggle((state) => {
   if (state && !recording) startRecording()
   else if (!state && recording) stopRecording()
 })
+
+// Apply live patches sent from main (rolling transcription)
+if (window.electronAPI && window.electronAPI.onLivePatch) {
+  window.electronAPI.onLivePatch((patch) => {
+    try {
+      const transcriptEl = document.getElementById('transcript')
+      if (transcriptEl) {
+        transcriptEl.style.display = 'block'
+        transcriptEl.textContent = patch && patch.text ? patch.text : '(listening...)'
+      }
+      // log live patch arrival for debugging (prepend to liveLog UI if present)
+      try {
+        const liveLogEl = document.getElementById('liveLog')
+        const now = new Date().toLocaleTimeString()
+        if (liveLogEl) liveLogEl.textContent = `${now} — Live patch received (seq=${patch && patch.seq ? patch.seq : 'n/a'})\n` + liveLogEl.textContent
+        else console.log('Live patch received', patch)
+      } catch (e) {}
+      const pasteBtn = document.getElementById('pasteBtn')
+      if (pasteBtn) pasteBtn.disabled = false
+    } catch (e) {
+      console.error('onLivePatch handler error', e)
+    }
+  })
+}
+
+// Live capture UI removed: background PCM capture is started/stopped with the normal record hotkey flow.
 
 // Transcribe button handler
 ;(function setupTranscribe () {
