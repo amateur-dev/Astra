@@ -6,16 +6,45 @@ const { exec } = require('child_process')
 const Store = require('electron-store')
 const store = new Store()
 
-// Dynamic import for fetch (node-fetch v3 is ESM only)
-let fetch
-;(async () => {
-  try {
-    const nodeFetch = await import('node-fetch')
-    fetch = nodeFetch.default
-  } catch (err) {
-    console.error('Failed to import node-fetch:', err)
+// Resolve a usable `fetch` in the main process.
+// Prefer a built-in/global fetch (available in newer Node/Electron), then try
+// CommonJS `require('node-fetch')`, then dynamic import of ESM `node-fetch`,
+// and finally `undici.fetch` as a last resort. This makes the packaged DMG
+// more resilient when the environment differs from the dev machine.
+let fetch = null
+try {
+  if (typeof globalThis.fetch === 'function') {
+    fetch = globalThis.fetch.bind(globalThis)
   }
-})()
+} catch (e) {
+  // ignore
+}
+if (!fetch) {
+  try {
+    // Try commonjs require (works if node-fetch installed as CJS or has default export)
+    // This will throw if node-fetch is ESM-only in this runtime, which we catch below.
+    // eslint-disable-next-line global-require
+    const nf = require('node-fetch')
+    fetch = nf && (nf.default || nf)
+  } catch (errRequire) {
+    // try dynamic import of ESM package as a fallback
+    ;(async () => {
+      try {
+        const nodeFetch = await import('node-fetch')
+        fetch = nodeFetch && (nodeFetch.default || nodeFetch)
+      } catch (errImport) {
+        try {
+          // Last resort: try undici if available
+          // eslint-disable-next-line global-require
+          const undici = require('undici')
+          fetch = undici && undici.fetch
+        } catch (errUndici) {
+          console.error('Failed to load any fetch implementation (global, node-fetch, undici):', errRequire, errImport, errUndici)
+        }
+      }
+    })()
+  }
+}
 
 let mainWindow = null
 let tray = null
@@ -29,11 +58,29 @@ function createWindow () {
       preload: path.join(__dirname, 'preload.js')
     }
   })
+  // Ensure the session will handle permission requests from the renderer.
+  // On macOS this lets the renderer request microphone access which will
+  // trigger the system prompt (assuming NSMicrophoneUsageDescription is present
+  // in the app's Info.plist). We accept 'media' permission requests.
+  try {
+    const ses = mainWindow.webContents.session
+    ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
+      console.log('Permission request for', permission, 'details=', details)
+      if (permission === 'media') return callback(true)
+      // default: deny other permissions
+      return callback(false)
+    })
+  } catch (e) {
+    console.warn('Permission handler setup failed', e)
+  }
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
 }
 
 function createTray () {
-  const iconPath = path.join(__dirname, 'tray-icon.png')
+  // tray icon lives in the renderer directory in source; when packaged the
+  // relative path should include 'renderer'. Use that path so the icon shows
+  // up in the menu bar when running the packaged app.
+  const iconPath = path.join(__dirname, 'renderer', 'tray-icon.png')
   const icon = nativeImage.createFromPath(iconPath)
   tray = new Tray(icon)
   const contextMenu = Menu.buildFromTemplate([
@@ -152,6 +199,56 @@ ipcMain.handle('test-transcribe', async (event) => {
   }
 })
 
+// Open the macOS Microphone privacy settings so users can grant access.
+ipcMain.handle('open-microphone-settings', async () => {
+  try {
+    // macOS System Settings URL for Privacy → Microphone
+    const cmd = `open "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"`
+    exec(cmd, (err) => {
+      if (err) console.error('Failed to open Microphone settings', err)
+    })
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
+// Open Automation (AppleEvents) settings panel
+ipcMain.handle('open-automation-settings', async () => {
+  try {
+    // macOS System Settings URL for Privacy → Automation
+    const cmd = `open "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"`
+    exec(cmd, (err) => {
+      if (err) console.error('Failed to open Automation settings', err)
+    })
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
+// Test automation: run a harmless osascript keystroke test and return stdout/stderr/exit code
+ipcMain.handle('test-automation', async () => {
+  try {
+    const as = 'tell application "System Events" to keystroke "v" using {command down}'
+    return await new Promise((resolve) => {
+      exec(`osascript -e ${JSON.stringify(as)}`, (err, stdout, stderr) => {
+        const out = (stdout || '').toString()
+        const errOut = (stderr || '').toString()
+        if (err) {
+          // include exit code if present
+          const code = err && err.code ? err.code : null
+          resolve({ ok: false, code, stdout: out, stderr: errOut, message: (errOut || err.message || String(err)).toString() })
+          return
+        }
+        resolve({ ok: true, code: 0, stdout: out, stderr: errOut })
+      })
+    })
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
 // Paste integration: write to clipboard and simulate Cmd+V via AppleScript (osascript)
 ipcMain.handle('paste-into-front', async (event, text) => {
   try {
@@ -200,8 +297,13 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           const ollamaEnabled = store.get('ollama_enabled') === true
           let finalText = tx.text
           let polishError = null
+          // Track metadata about whether polishing was attempted/used and any errors
+          let polishUsed = null
+          let polishTried = null
+          let polishErrors = null
           
-          if (ollamaEnabled && tx.text) {
+          // Only attempt polishing if there is non-empty transcript text
+          if (ollamaEnabled && tx.text && String(tx.text).trim().length > 0) {
             try {
               const polished = await polishWithOllama(tx.text)
               if (polished && polished.ok) {
@@ -219,6 +321,9 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
               polishError = String(err)
             }
           }
+          // Clean the final text (strip timestamps/caveat) before any further actions
+          finalText = cleanTranscript(finalText)
+
           // If auto_paste is enabled, attempt to paste the final text into the front app
           let pasteResult = null
           const autoPaste = store.get('auto_paste') === true
@@ -317,7 +422,20 @@ async function transcribeWebm (webmPath) {
       })
     })
 
-    return { ok: true, text: transcript, wav: wavPath }
+  // Clean the raw transcript before returning to the renderer
+    const cleaned = cleanTranscript(transcript)
+    // If cleaning removed everything but the raw transcript had content,
+    // fall back to returning the raw transcript to avoid losing information.
+    let finalText = ''
+    if (cleaned && String(cleaned).trim().length > 0) {
+      finalText = cleaned
+    } else if (transcript && String(transcript).trim().length > 0) {
+      console.warn('cleanTranscript removed all content; returning raw transcript as fallback')
+      finalText = transcript
+    } else {
+      finalText = ''
+    }
+    return { ok: true, text: finalText, raw: transcript, wav: wavPath }
   } catch (err) {
     console.error('transcribeWebm error', err)
     return { ok: false, error: String(err) }
@@ -328,12 +446,29 @@ async function transcribeWebm (webmPath) {
 async function polishWithOllama (text) {
   try {
     if (!fetch) {
-      throw new Error('fetch not available - node-fetch import failed')
+      // If fetch couldn't be resolved at startup, surface a clearer message and
+      // avoid throwing the raw import failure. The caller will receive a
+      // structured error so the UI can show a helpful message.
+      console.error('polishWithOllama: no fetch implementation available in main process')
+      throw new Error('fetch not available in the main process; Ollama polishing is disabled. Make sure node-fetch or undici is packaged, or run a newer Electron with global fetch support.')
     }
 
     const configuredUrl = store.get('ollama_url') || 'http://localhost:11434'
     const ollamaModel = store.get('ollama_model') || 'llama3.2'
-    const prompt = `Please clean up and improve this voice transcript. Fix any grammar, punctuation, and formatting issues while preserving the original meaning:\n\n${text}`
+    // Instruct Ollama to both polish and remove unwanted artifacts like
+    // timestamps and the common 'I made the following changes' caveat, and
+    // to return the result as a single paragraph.
+  const prompt = `Please perform the following on the transcript below:
+  1) Remove any timestamps or timecodes (examples: "00:00:00", "00:00:00.000", "00:00:00 --> 00:00:16.500", or any bracketed timecodes).
+  2) Remove any editorial caveat or checklist that begins with phrases like "I made the following changes" and any bullet/list that follows it.
+  3) Fix grammar, punctuation, and formatting while preserving the original meaning.
+  4) Return the cleaned transcript as a single paragraph with normalized whitespace.
+
+  IMPORTANT: Do NOT include any heading, label, or introductory phrase such as "Here is the cleaned transcript:" — return only the cleaned paragraph.
+
+  Transcript:
+
+  ${text}`
 
     // Build an ordered list of candidate base URLs to try.
     // If the configured URL uses localhost, add an explicit 127.0.0.1 fallback.
@@ -380,6 +515,41 @@ async function polishWithOllama (text) {
   } catch (err) {
     console.error('polishWithOllama error', err)
     return { ok: false, error: String(err) }
+  }
+}
+
+// helper: clean transcript text by removing common timestamp lines, any
+// trailing 'I made the following changes' caveat and list items, and
+// collapse everything into a single paragraph. This is a best-effort
+// normalizer to make transcripts more user-friendly.
+function cleanTranscript (text) {
+  try {
+    if (!text || typeof text !== 'string') return text
+    // Split into lines and drop lines that look like timestamps or are empty
+    const rawLines = text.split(/\r?\n/)
+    const lines = []
+    for (let i = 0; i < rawLines.length; i++) {
+      let line = rawLines[i].trim()
+      if (!line) continue
+      // If the line contains a timestamp pattern like 00:00:00 or 00:00:00.000 or an arrow -->, drop it
+      if (/\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?/.test(line)) continue
+      if (/-->|→/.test(line)) continue
+      // Remove common bullet markers
+      line = line.replace(/^\s*[-*•]\s+/, '')
+      // If this line starts the caveat about changes, stop processing further lines
+      if (/^I made the following changes/i.test(line) || /^I made some changes/i.test(line)) break
+      lines.push(line)
+    }
+
+  if (lines.length === 0) return ''
+  // Join into a single paragraph and normalize whitespace
+  let paragraph = lines.join(' ').replace(/\s+/g, ' ').trim()
+  // Strip common leading labels that models sometimes add, e.g. "Here is the cleaned transcript:"
+  paragraph = paragraph.replace(/^(?:here\s+is(?:\s+the)?|here'?s(?:\s+the)?|cleaned\s+transcript)[:\-\s]*/i, '')
+  return paragraph
+  } catch (err) {
+    console.error('cleanTranscript error', err)
+    return text
   }
 }
 
