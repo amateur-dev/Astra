@@ -7,6 +7,10 @@
   <body>
     <h2>Voice Hotkey — MVP</h2>
     <div id="status">Idle</div>
+    <div style="margin-top:6px">
+      Microphone permission: <span id="micStatus">unknown</span>
+      <button id="openMicSettingsBtn" style="margin-left:8px">Open Microphone Settings</button>
+    </div>
     <button id="recordBtn">Start Recording</button>
     <button id="transcribeBtn" disabled>Transcribe</button>
     <pre id="transcript" style="white-space:pre-wrap; background:#f6f6f6; padding:8px; border-radius:4px; display:none"></pre>
