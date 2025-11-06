@@ -14,4 +14,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ,
   // paste integration
   pasteToFront: (text) => ipcRenderer.invoke('paste-into-front', text)
+  ,
+  // open system microphone privacy settings
+  openMicrophoneSettings: () => ipcRenderer.invoke('open-microphone-settings')
+  ,
+  // automation / apple events helpers
+  testAutomation: () => ipcRenderer.invoke('test-automation'),
+  openAutomationSettings: () => ipcRenderer.invoke('open-automation-settings')
 })
