@@ -15,7 +15,19 @@ async function startRecording () {
     chunks = []
     mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data) }
     mediaRecorder.onstop = async () => {
+      // If no chunks were captured, the user likely denied microphone access
+      // or the stream had no data. Show a clear status and skip saving.
+      if (!chunks || chunks.length === 0) {
+        status.textContent = 'No audio captured — microphone permission denied, or input was silent. Please grant Microphone access in System Settings → Privacy & Security → Microphone.'
+        btn.disabled = false
+        return
+      }
       const blob = new Blob(chunks, { type: 'audio/webm' })
+      if (blob.size === 0) {
+        status.textContent = 'Recorded audio appears empty. Please check microphone access and try again.'
+        btn.disabled = false
+        return
+      }
       const arrayBuffer = await blob.arrayBuffer()
       // send to main to save
       status.textContent = 'Saving...'
@@ -121,15 +133,21 @@ window.electronAPI.onRecordToggle((state) => {
     transBtn.disabled = true
     status.textContent = 'Transcribing...'
     if (transcriptEl) transcriptEl.style.display = 'none'
-    try {
+      try {
       const r = await window.electronAPI.transcribeFile(p)
       if (r && r.ok) {
-        status.textContent = `Transcribed (wav: ${r.wav})`
-        if (transcriptEl) {
-          transcriptEl.textContent = r.text || '(empty)'
-          transcriptEl.style.display = 'block'
-          if (pasteBtn) {
-            pasteBtn.disabled = false
+        if (r.text && String(r.text).trim().length > 0) {
+          status.textContent = `Transcribed (wav: ${r.wav})`
+          if (transcriptEl) {
+            transcriptEl.textContent = r.text
+            transcriptEl.style.display = 'block'
+            if (pasteBtn) pasteBtn.disabled = false
+          }
+        } else {
+          status.textContent = 'No speech detected in recording (transcript empty).'
+          if (transcriptEl) {
+            transcriptEl.textContent = '(empty)'
+            transcriptEl.style.display = 'block'
           }
         }
       } else {
@@ -163,6 +181,29 @@ window.electronAPI.onRecordToggle((state) => {
       }
     })
   }
+})()
+
+// Permission UI wiring
+;(function setupPermissionUI() {
+  const micStatus = document.getElementById('micStatus')
+  const openBtn = document.getElementById('openMicSettingsBtn')
+  async function updateStatus() {
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        const s = await navigator.permissions.query({ name: 'microphone' })
+        if (micStatus) micStatus.textContent = s.state || 'unknown'
+        s.onchange = () => { if (micStatus) micStatus.textContent = s.state }
+      } else {
+        if (micStatus) micStatus.textContent = 'unknown'
+      }
+    } catch (e) {
+      if (micStatus) micStatus.textContent = 'unknown'
+    }
+  }
+  if (openBtn) openBtn.addEventListener('click', async () => {
+    try { await window.electronAPI.openMicrophoneSettings(); } catch (e) { console.error(e) }
+  })
+  updateStatus()
 })()
 
 // Settings UI wiring
@@ -263,5 +304,58 @@ window.electronAPI.onRecordToggle((state) => {
     if (saveBtn) saveBtn.addEventListener('click', saveSettings)
     if (testBtn) testBtn.addEventListener('click', testSettings)
     loadSettings()
+    // add automation test UI (if not already present)
+    try { setupAutomationTest() } catch (e) { /* ignore */ }
   })
 })()
+
+// Automation test helper: creates buttons under the Settings panel to run
+// a diagnostic osascript paste test and to open the Automation settings.
+function setupAutomationTest () {
+  const settingsResult = document.getElementById('settingsResult')
+  if (!settingsResult) return
+  // create container
+  const container = document.createElement('div')
+  container.style.marginTop = '8px'
+  container.style.display = 'flex'
+  container.style.gap = '8px'
+
+  const testBtn = document.createElement('button')
+  testBtn.id = 'testAutomationBtn'
+  testBtn.textContent = 'Test Automation'
+
+  const openBtn = document.createElement('button')
+  openBtn.id = 'openAutomationSettingsBtn'
+  openBtn.textContent = 'Open Automation Settings'
+
+  container.appendChild(testBtn)
+  container.appendChild(openBtn)
+  settingsResult.parentNode.insertBefore(container, settingsResult.nextSibling)
+
+  testBtn.addEventListener('click', async () => {
+    testBtn.disabled = true
+    settingsResult.textContent = 'Running automation test... (ensure a text field is focused in the target app)'
+    try {
+      const r = await window.electronAPI.testAutomation()
+      if (!r) {
+        settingsResult.textContent = 'No response from automation test.'
+      } else {
+        // show concise output
+        if (r.ok) settingsResult.textContent = `Automation test OK (code: ${r.code || 0}). stdout: ${r.stdout || '(none)'} stderr: ${r.stderr || '(none)'} `
+        else settingsResult.textContent = `Automation test FAILED (code: ${r.code || 'n/a'}). message: ${r.message || r.error || JSON.stringify(r)}`
+      }
+    } catch (err) {
+      settingsResult.textContent = 'Automation test error: ' + err
+    } finally {
+      testBtn.disabled = false
+    }
+  })
+
+  openBtn.addEventListener('click', async () => {
+    try {
+      await window.electronAPI.openAutomationSettings()
+    } catch (e) {
+      console.error('openAutomationSettings failed', e)
+    }
+  })
+}
