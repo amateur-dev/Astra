@@ -4,9 +4,11 @@
   "description": "Minimal Electron-based voice-to-text tray app (rewrite)",
   "main": "src/main.js",
   "scripts": {
-    "start": "electron .",
-    "build": "electron-builder --mac",
-    "dist": "electron-builder --mac --x64"
+  "start": "electron .",
+  "build": "electron-builder --mac",
+  "dist": "electron-builder --mac --x64",
+  "dist:arm64": "electron-builder --mac --arm64",
+  "dist:universal": "electron-builder --mac --universal"
   },
   "author": "",
   "license": "MIT",
@@ -22,7 +24,18 @@
     "appId": "com.example.voicehotkey",
     "mac": {
       "category": "public.app-category.productivity",
-      "target": ["dmg"]
-    }
+      "target": ["dmg"],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "The app requires microphone access to record voice for local transcription.",
+        "NSAppleEventsUsageDescription": "Needed to paste transcriptions into the frontmost app via AppleScript when auto-paste is enabled."
+      }
+    },
+    "extraResources": [
+      {
+        "from": "build/ffmpeg",
+        "to": "ffmpeg",
+        "filter": ["**/*"]
+      }
+    ]
   }
 }
