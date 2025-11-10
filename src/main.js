@@ -559,6 +559,32 @@ ipcMain.handle('finalize-live', async (event, senderId) => {
   }
 })
 
+// Clear buffered live audio files for a sender and reset state.
+ipcMain.handle('clear-live-buffer', async (event, senderId) => {
+  try {
+    const id = senderId || (event && event.sender && String(event.sender.id)) || 'unknown'
+    const state = liveMockState[id]
+    if (!state) return { ok: true, cleared: 0 }
+    let count = 0
+    if (state.chunkWavs && state.chunkWavs.length > 0) {
+      for (const p of state.chunkWavs) {
+        try {
+          if (fs.existsSync(p)) {
+            await fs.promises.unlink(p)
+            count += 1
+          }
+        } catch (e) { /* ignore individual file delete errors */ }
+      }
+    }
+    // reset state
+    liveMockState[id] = { chunkWavs: [], debounce: null, seq: 0, prevTranscript: '' }
+    return { ok: true, cleared: count }
+  } catch (err) {
+    console.error('clear-live-buffer error', err)
+    return { ok: false, error: String(err) }
+  }
+})
+
 async function finalizeLiveForSender (senderId) {
   try {
     const state = liveMockState[senderId]

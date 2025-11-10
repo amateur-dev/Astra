@@ -536,3 +536,37 @@ function setupAutomationTest () {
     }
   })
 }
+
+// Clear & Re-record button
+;(function setupClearButton() {
+  const clearBtn = document.getElementById('clearBtn')
+  if (!clearBtn) return
+  clearBtn.addEventListener('click', async () => {
+    try {
+      clearBtn.disabled = true
+      const statusEl = document.getElementById('status')
+      if (statusEl) statusEl.textContent = 'Clearing buffered audio...'
+      const res = await window.electronAPI.clearLiveBuffer()
+      if (res && res.ok) {
+        // clear UI transcript and re-enable recording
+        const transcriptEl = document.getElementById('transcript')
+        if (transcriptEl) { transcriptEl.textContent = ''; transcriptEl.style.display = 'none' }
+        if (statusEl) statusEl.textContent = `Cleared ${res.cleared || 0} files. Ready to record.`
+        // restart recording if not currently recording (trigger record button)
+        const recordBtn = document.getElementById('recordBtn')
+        if (recordBtn && recordBtn.textContent && recordBtn.textContent.includes('Start')) {
+          // start recording programmatically
+          recordBtn.click()
+        }
+      } else {
+        if (statusEl) statusEl.textContent = `Clear failed: ${res && res.error ? res.error : 'unknown'}`
+      }
+    } catch (err) {
+      console.error('clearBtn error', err)
+      const statusEl = document.getElementById('status')
+      if (statusEl) statusEl.textContent = 'Clear failed: ' + err
+    } finally {
+      clearBtn.disabled = false
+    }
+  })
+})()
