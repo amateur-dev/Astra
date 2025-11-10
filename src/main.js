@@ -49,8 +49,6 @@ if (!fetch) {
 let mainWindow = null
 let tray = null
 let isRecording = false
-// Live mock state per renderer sender (used for incremental patch simulation)
-const liveMockState = {}
 
 function createWindow () {
   mainWindow = new BrowserWindow({
@@ -101,23 +99,6 @@ app.whenReady().then(() => {
   const ret = globalShortcut.register('CommandOrControl+Shift+V', () => {
     isRecording = !isRecording
     mainWindow.webContents.send('record-toggle', isRecording)
-    // If we've just stopped recording, trigger a centralized finalize flow that
-    // concatenates buffered WAVs, transcribes, optionally polishes with Ollama,
-    // and returns the final text. Also send the result to the renderer so it can
-    // display the final transcript and enable paste.
-    if (!isRecording) {
-      (async () => {
-        try {
-          const senderId = mainWindow && mainWindow.webContents ? String(mainWindow.webContents.id) : 'unknown'
-          const res = await finalizeLiveForSender(senderId)
-          try {
-            mainWindow.webContents.send('finalize-result', res)
-          } catch (e) { console.warn('failed to send finalize-result', e) }
-        } catch (e) {
-          console.error('finalize on stop failed', e)
-        }
-      })()
-    }
   })
   if (!ret) console.log('Global shortcut registration failed')
 
@@ -300,6 +281,32 @@ ipcMain.handle('paste-into-front', async (event, text) => {
   }
 })
 
+// Return the current frontmost application name (macOS) for diagnostics
+ipcMain.handle('get-frontmost-app', async () => {
+  try {
+    const name = await getFrontmostApp()
+    return { ok: true, name }
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+})
+
+// Accept live audio WAV chunks (Uint8Array) from the renderer and save to
+// a temp file. This avoids a runtime 'No handler registered for
+// "send-audio-chunk"' error when the renderer invokes the channel.
+ipcMain.handle('send-audio-chunk', async (event, uint8Array) => {
+  try {
+    if (!uint8Array) return { ok: false, error: 'No data' }
+    const buffer = Buffer.from(uint8Array)
+    const filename = path.join(os.tmpdir(), `voicehotkey-chunk-${Date.now()}-${Math.floor(Math.random() * 1000000)}.wav`)
+    await fs.promises.writeFile(filename, buffer)
+    return { ok: true, path: filename }
+  } catch (err) {
+    console.error('send-audio-chunk handler error', err)
+    return { ok: false, error: String(err) }
+  }
+})
+
 // Save a recording sent from renderer (Uint8Array) to a temp file and return its path
 ipcMain.handle('save-recording', async (event, uint8Array) => {
   try {
@@ -387,150 +394,6 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
   }
 })
 
-// Receive live audio chunks from renderer and write to temp files (accepts WAV or webm)
-ipcMain.handle('send-audio-chunk', async (event, uint8Array) => {
-  try {
-    if (!uint8Array) return { ok: false, error: 'No data' }
-    const buffer = Buffer.from(uint8Array)
-    const senderId = event && event.sender && event.sender.id ? String(event.sender.id) : 'unknown'
-    if (!liveMockState[senderId]) liveMockState[senderId] = { chunkWavs: [], debounce: null, seq: 0, prevTranscript: '' }
-
-    // Heuristic: WAV files start with 'RIFF'
-    const isWav = buffer.length >= 4 && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46
-    if (isWav) {
-      const filename = path.join(os.tmpdir(), `voicehotkey-chunk-${Date.now()}.wav`)
-      await fs.promises.writeFile(filename, buffer)
-      liveMockState[senderId].chunkWavs.push(filename)
-      const MAX_WAVS = 8
-      if (liveMockState[senderId].chunkWavs.length > MAX_WAVS) liveMockState[senderId].chunkWavs.splice(0, liveMockState[senderId].chunkWavs.length - MAX_WAVS)
-    } else {
-      // fallback: write webm and try converting to wav
-      const filename = path.join(os.tmpdir(), `voicehotkey-chunk-${Date.now()}.webm`)
-      await fs.promises.writeFile(filename, buffer)
-      try {
-        const ffmpegCmd = await findFfmpeg()
-        if (ffmpegCmd) {
-          const wavPath = path.join(os.tmpdir(), `voicehotkey-chunk-${Date.now()}.wav`)
-          await new Promise((resolve, reject) => {
-            const cmd = `${JSON.stringify(ffmpegCmd)} -y -i ${JSON.stringify(filename)} -ar 16000 -ac 1 ${JSON.stringify(wavPath)}`
-            exec(cmd, (err, stdout, stderr) => {
-              if (err) return reject(new Error('ffmpeg convert failed: ' + (stderr || err.message)))
-              resolve()
-            })
-          })
-          liveMockState[senderId].chunkWavs.push(wavPath)
-          const MAX_WAVS = 8
-          if (liveMockState[senderId].chunkWavs.length > MAX_WAVS) liveMockState[senderId].chunkWavs.splice(0, liveMockState[senderId].chunkWavs.length - MAX_WAVS)
-        }
-      } catch (e) {
-        console.warn('chunk convert failed', e)
-      }
-    }
-
-    // Debounce transcription so we provide incremental updates with context
-    try {
-      if (liveMockState[senderId].debounce) clearTimeout(liveMockState[senderId].debounce)
-      liveMockState[senderId].debounce = setTimeout(() => {
-        // run async transcription, don't block the handler
-        (async () => {
-          try {
-            await runRollingTranscription(senderId, event && event.sender)
-          } catch (e) {
-            console.error('runRollingTranscription error', e)
-          }
-        })()
-      }, 800)
-    } catch (e) {
-      console.warn('debounce setup failed', e)
-    }
-
-    return { ok: true }
-  } catch (err) {
-    console.error('send-audio-chunk handler error', err)
-    return { ok: false, error: String(err) }
-  }
-})
-
-// Helper: run rolling-window transcription for a sender and emit a live patch to renderer
-async function runRollingTranscription (senderId, sender) {
-  try {
-    const state = liveMockState[senderId]
-    if (!state || !state.chunkWavs || state.chunkWavs.length === 0) return
-
-    const ffmpegCmd = await findFfmpeg()
-    if (!ffmpegCmd) {
-      console.warn('ffmpeg not found; cannot run rolling transcription')
-      return
-    }
-
-    // Use last N wavs to build a combined input
-    const take = 6
-    const wavs = state.chunkWavs.slice(-take)
-    if (wavs.length === 0) return
-
-    const listFile = path.join(os.tmpdir(), `voicehotkey-concat-${Date.now()}.txt`)
-    // Only include wavs that still exist (avoid race conditions)
-    const existing = []
-    for (const p of wavs) {
-      try {
-        if (fs.existsSync(p)) existing.push(p)
-      } catch (e) {
-        // ignore
-      }
-    }
-    if (existing.length === 0) return
-    // concat expects lines like: file '/path/to/file.wav'
-    // Use single-quoted paths and escape any single quotes in the path
-    const listContents = existing.map(p => `file '${String(p).replace(/'/g, "'\\\''")}'`).join('\n')
-    await fs.promises.writeFile(listFile, listContents)
-
-    const combinedPath = path.join(os.tmpdir(), `voicehotkey-rolling-${Date.now()}.wav`)
-    // concat and resample to 16k mono
-    await new Promise((resolve, reject) => {
-      // Use ffmpeg with a concat list file. Wrap paths properly.
-      const cmd = `${JSON.stringify(ffmpegCmd)} -y -f concat -safe 0 -i ${JSON.stringify(listFile)} -ar 16000 -ac 1 ${JSON.stringify(combinedPath)}`
-      exec(cmd, (err, stdout, stderr) => {
-        if (err) return reject(new Error('ffmpeg concat failed: ' + (stderr || err.message)))
-        resolve()
-      })
-    })
-
-  // Run existing transcription pipeline on the combined WAV file.
-  const tx = await transcribeWav(combinedPath)
-  let finalText = ''
-  if (tx && tx.ok) finalText = tx.text || ''
-  else if (tx && tx.error) finalText = `⚠ Transcribe error: ${String(tx.error).slice(0,200)}`
-
-    // Optionally run Ollama polishing if enabled
-    try {
-      const ollamaEnabled = store.get('ollama_enabled') === true
-      if (ollamaEnabled && finalText && finalText.trim().length > 0) {
-        const polished = await polishWithOllama(finalText)
-        if (polished && polished.ok && polished.text) finalText = polished.text
-      }
-    } catch (e) {
-      console.warn('Ollama polish failed', e)
-    }
-
-    // Compare and emit patch if different
-    if (String(finalText || '').trim() !== String(state.prevTranscript || '').trim()) {
-      state.seq = (state.seq || 0) + 1
-      state.prevTranscript = finalText
-      try {
-        if (sender && sender.send) {
-          sender.send('live-patch', { seq: state.seq, text: finalText })
-        } else if (mainWindow && mainWindow.webContents) {
-          mainWindow.webContents.send('live-patch', { seq: state.seq, text: finalText })
-        }
-      } catch (e) {
-        console.warn('failed to send live patch', e)
-      }
-    }
-  } catch (err) {
-    console.error('runRollingTranscription error', err)
-  }
-}
-
 // Transcribe the given webm file: convert to WAV with ffmpeg, then run a configured transcription command.
 ipcMain.handle('transcribe', async (event, webmPath) => {
   try {
@@ -547,117 +410,6 @@ ipcMain.handle('transcribe', async (event, webmPath) => {
     return { ok: false, error: String(err) }
   }
 })
-
-// Centralized finalize: concatenate buffered WAVs for a sender, run transcription and optional Ollama polish.
-ipcMain.handle('finalize-live', async (event, senderId) => {
-  try {
-    const id = senderId || (event && event.sender && String(event.sender.id)) || 'unknown'
-    const res = await finalizeLiveForSender(id)
-    return res
-  } catch (err) {
-    return { ok: false, error: String(err) }
-  }
-})
-
-// Clear buffered live audio files for a sender and reset state.
-ipcMain.handle('clear-live-buffer', async (event, senderId) => {
-  try {
-    const id = senderId || (event && event.sender && String(event.sender.id)) || 'unknown'
-    const state = liveMockState[id]
-    if (!state) return { ok: true, cleared: 0 }
-    let count = 0
-    if (state.chunkWavs && state.chunkWavs.length > 0) {
-      for (const p of state.chunkWavs) {
-        try {
-          if (fs.existsSync(p)) {
-            await fs.promises.unlink(p)
-            count += 1
-          }
-        } catch (e) { /* ignore individual file delete errors */ }
-      }
-    }
-    // reset state
-    liveMockState[id] = { chunkWavs: [], debounce: null, seq: 0, prevTranscript: '' }
-    return { ok: true, cleared: count }
-  } catch (err) {
-    console.error('clear-live-buffer error', err)
-    return { ok: false, error: String(err) }
-  }
-})
-
-async function finalizeLiveForSender (senderId) {
-  try {
-    const state = liveMockState[senderId]
-    if (!state || !state.chunkWavs || state.chunkWavs.length === 0) return { ok: false, error: 'No audio buffered' }
-
-    const ffmpegCmd = await findFfmpeg()
-    if (!ffmpegCmd) return { ok: false, error: 'ffmpeg not found' }
-
-    // Use all available buffered wavs to build a combined final WAV.
-    const existing = []
-    for (const p of state.chunkWavs) {
-      try { if (fs.existsSync(p)) existing.push(p) } catch (e) {}
-    }
-    if (existing.length === 0) return { ok: false, error: 'No existing buffered WAVs' }
-
-    const listFile = path.join(os.tmpdir(), `voicehotkey-finalize-${Date.now()}.txt`)
-    const listContents = existing.map(p => `file '${String(p).replace(/'/g, "'\\\''")}'`).join('\n')
-    await fs.promises.writeFile(listFile, listContents)
-
-    const combinedPath = path.join(os.tmpdir(), `voicehotkey-final-${Date.now()}.wav`)
-    await new Promise((resolve, reject) => {
-      const cmd = `${JSON.stringify(ffmpegCmd)} -y -f concat -safe 0 -i ${JSON.stringify(listFile)} -ar 16000 -ac 1 ${JSON.stringify(combinedPath)}`
-      exec(cmd, (err, stdout, stderr) => {
-        if (err) return reject(new Error('ffmpeg concat failed: ' + (stderr || err.message)))
-        resolve()
-      })
-    })
-
-    // Run transcription on combined WAV
-    const tx = await transcribeWav(combinedPath)
-    let finalText = ''
-    if (tx && tx.ok) finalText = tx.text || ''
-    else if (tx && tx.error) finalText = `⚠ Transcribe error: ${String(tx.error).slice(0,200)}`
-
-    // Optional Ollama polish
-    let polishMeta = null
-    try {
-      const ollamaEnabled = store.get('ollama_enabled') === true
-      if (ollamaEnabled && finalText && finalText.trim().length > 0) {
-        const polished = await polishWithOllama(finalText)
-        if (polished && polished.ok && polished.text) finalText = polished.text
-        polishMeta = polished || null
-      }
-    } catch (e) {
-      console.warn('Ollama polish failed during finalize', e)
-    }
-
-    const cleaned = cleanTranscript(finalText)
-
-    // If auto_paste is enabled, attempt paste
-    let pasteResult = null
-    try {
-      const autoPaste = store.get('auto_paste') === true
-      if (autoPaste && cleaned) {
-        try { clipboard.writeText(cleaned) } catch (e) {}
-        const as = 'tell application "System Events" to keystroke "v" using {command down}'
-        pasteResult = await new Promise((resolve) => {
-          exec(`osascript -e ${JSON.stringify(as)}`, (err, stdout, stderr) => {
-            if (err) return resolve({ ok: false, error: (stderr || err.message || String(err)).toString() })
-            resolve({ ok: true })
-          })
-        })
-      }
-    } catch (e) {
-      pasteResult = { ok: false, error: String(e) }
-    }
-
-    return { ok: true, text: cleaned, original: tx && tx.text ? tx.text : null, polish: polishMeta, pasteResult }
-  } catch (err) {
-    console.error('finalizeLiveForSender error', err)
-    return { ok: false, error: String(err) }
-  }
-}
 
 // helper: convert webm -> wav and run configured transcription command template
 async function transcribeWebm (webmPath) {
@@ -712,36 +464,6 @@ async function transcribeWebm (webmPath) {
     return { ok: true, text: finalText, raw: transcript, wav: wavPath }
   } catch (err) {
     console.error('transcribeWebm error', err)
-    return { ok: false, error: String(err) }
-  }
-}
-
-// helper: run transcription on an existing WAV file with configured transcription command
-async function transcribeWav (wavPath) {
-  try {
-    if (!wavPath || typeof wavPath !== 'string') return { ok: false, error: 'Invalid wav path' }
-    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || null
-    if (!tpl) {
-      return { ok: false, error: 'No transcription command configured. Set TRANSCRIBE_CMD env variable or save settings in app.' }
-    }
-    const cmd = tpl.replace(/{wav}/g, JSON.stringify(wavPath))
-    const transcript = await new Promise((resolve, reject) => {
-      exec(cmd, { maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
-        if (err) {
-          console.error('transcription command failed', err, stderr)
-          return reject(new Error('transcription failed: ' + (stderr || err.message)))
-        }
-        resolve(stdout.toString())
-      })
-    })
-    const cleaned = cleanTranscript(transcript)
-    let finalText = ''
-    if (cleaned && String(cleaned).trim().length > 0) finalText = cleaned
-    else if (transcript && String(transcript).trim().length > 0) finalText = transcript
-    else finalText = ''
-    return { ok: true, text: finalText, raw: transcript, wav: wavPath }
-  } catch (err) {
-    console.error('transcribeWav error', err)
     return { ok: false, error: String(err) }
   }
 }
@@ -805,7 +527,26 @@ async function polishWithOllama (text) {
           continue
         }
         const data = await response.json()
-        const polishedText = data.response || text
+        let polishedText = data.response || text
+
+        // If Ollama removed timestamps and inserted a placeholder like
+        // "[removed timestamp]", try to recover a timestamp-like token
+        // from the original transcript and re-insert it. This helps when
+        // the LLM aggressively strips timecodes but the raw ASR captured
+        // a human-readable datetime that should be preserved.
+        try {
+          const placeholderRE = /\[removed timestamp\]|\[removed time\]|\[timestamp removed\]|\[removed\s?time\]/i
+          if (placeholderRE.test(polishedText)) {
+            const found = extractTimestampFromText(text)
+            if (found) {
+              polishedText = polishedText.replace(placeholderRE, found)
+            }
+          }
+        } catch (e) {
+          // non-fatal — continue with the polished text
+          console.warn('Timestamp reinsertion failed', e)
+        }
+
         return { ok: true, text: polishedText, used: base, tried: candidates }
       } catch (err) {
         // record the error and try next candidate
@@ -855,6 +596,36 @@ function cleanTranscript (text) {
     console.error('cleanTranscript error', err)
     return text
   }
+}
+
+// Helper: attempt to extract a timestamp-like substring from the raw transcript.
+// Returns the first plausible match (time like "7:30 AM", numeric times like "7:30",
+// ordinals like "11th", or month/day occurrences) or null if none found.
+function extractTimestampFromText (text) {
+  if (!text || typeof text !== 'string') return null
+  // Check for common time patterns first
+  const timeRegexes = [
+    /\b\d{1,2}[:.]\d{2}\s*(?:AM|PM|am|pm)?\b/, // 7:30, 07:30 AM
+    /\b\d{1,2}\s*(?:AM|PM|am|pm)\b/, // 7 AM
+  ]
+  for (const re of timeRegexes) {
+    const m = text.match(re)
+    if (m) return m[0]
+  }
+
+  // Ordinal dates like 11th, 2nd
+  const ordinal = text.match(/\b\d{1,2}(?:st|nd|rd|th)\b/)
+  if (ordinal) return ordinal[0]
+
+  // Month + day like "November 11" or "Nov 11th"
+  const month = text.match(/\b(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+\d{1,2}(?:st|nd|rd|th)?\b/i)
+  if (month) return month[0]
+
+  // Fallback: any 4+ digit year or standalone 4-digit number (rare)
+  const year = text.match(/\b\d{4}\b/)
+  if (year) return year[0]
+
+  return null
 }
 
 // helper: locate ffmpeg binary. Checks user-configured path, system paths, and bundled resources
