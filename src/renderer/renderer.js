@@ -149,7 +149,12 @@ async function startRecording () {
     }
     mediaRecorder.start()
     recording = true
-    status.textContent = 'Recording...'
+  status.textContent = 'Recording...'
+  // show progress indicator in capturing state
+  const progressEl = document.getElementById('progress')
+  const progressText = document.getElementById('progressText')
+  if (progressEl) progressEl.style.display = 'block'
+  if (progressText) progressText.textContent = 'capturing'
     btn.textContent = 'Stop Recording'
     // Also start background PCM capture so the app can send larger WAV chunks while recording.
     try {
@@ -236,6 +241,11 @@ function stopRecording () {
   }
   recording = false
   status.textContent = 'Stopping...'
+  // indicate we're finalizing; keep transcript hidden until final result
+  const progressEl = document.getElementById('progress')
+  const progressText = document.getElementById('progressText')
+  if (progressEl) progressEl.style.display = 'block'
+  if (progressText) progressText.textContent = 'finalizing...'
   btn.textContent = 'Start Recording'
 }
 
@@ -251,26 +261,14 @@ window.electronAPI.onRecordToggle((state) => {
 })
 
 // Apply live patches sent from main (rolling transcription)
+// Suppress live partials in the UI: do not display incremental live patches to avoid confusion.
 if (window.electronAPI && window.electronAPI.onLivePatch) {
   window.electronAPI.onLivePatch((patch) => {
     try {
-      const transcriptEl = document.getElementById('transcript')
-      if (transcriptEl) {
-        transcriptEl.style.display = 'block'
-        transcriptEl.textContent = patch && patch.text ? patch.text : '(listening...)'
-      }
-      // log live patch arrival for debugging (prepend to liveLog UI if present)
-      try {
-        const liveLogEl = document.getElementById('liveLog')
-        const now = new Date().toLocaleTimeString()
-        if (liveLogEl) liveLogEl.textContent = `${now} — Live patch received (seq=${patch && patch.seq ? patch.seq : 'n/a'})\n` + liveLogEl.textContent
-        else console.log('Live patch received', patch)
-      } catch (e) {}
-      const pasteBtn = document.getElementById('pasteBtn')
-      if (pasteBtn) pasteBtn.disabled = false
-    } catch (e) {
-      console.error('onLivePatch handler error', e)
-    }
+      // Only log for debugging; do not update the visible transcript.
+      console.debug('live-patch (hidden):', patch)
+      // Allow paste button to be enabled only after finalization — do not enable here.
+    } catch (e) { console.error('onLivePatch handler error', e) }
   })
 }
 
@@ -280,6 +278,9 @@ if (window.electronAPI && window.electronAPI.onLivePatch) {
       try {
         const transcriptEl = document.getElementById('transcript')
         const pasteBtn = document.getElementById('pasteBtn')
+        const progressEl = document.getElementById('progress')
+        const progressText = document.getElementById('progressText')
+        if (progressEl) progressEl.style.display = 'none'
         if (res && res.ok && res.text) {
           if (transcriptEl) {
             transcriptEl.textContent = res.text
@@ -288,6 +289,8 @@ if (window.electronAPI && window.electronAPI.onLivePatch) {
           if (pasteBtn) pasteBtn.disabled = false
           const status = document.getElementById('status')
           if (status) status.textContent = 'Finalized — ready to paste'
+          // show simple confetti emoji to indicate completion
+          if (transcriptEl) transcriptEl.textContent = '\n🎉 ' + transcriptEl.textContent + ' 🎉\n'
         } else {
           const status = document.getElementById('status')
           if (status) status.textContent = `Finalize failed: ${res && res.error ? res.error : 'unknown'}`
