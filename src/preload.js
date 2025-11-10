@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // send live audio chunk (Uint8Array) to main for relaying or saving
   sendAudioChunk: (uint8Array) => ipcRenderer.invoke('send-audio-chunk', uint8Array)
   ,
+  // finalize the buffered live audio for a sender and get the polished text
+  finalizeLive: (senderId) => ipcRenderer.invoke('finalize-live', senderId),
+  // listen for finalize results emitted by main after hotkey stop
+  onFinalizeResult: (cb) => ipcRenderer.on('finalize-result', (event, res) => cb(res)),
   // open system microphone privacy settings
   openMicrophoneSettings: () => ipcRenderer.invoke('open-microphone-settings')
   ,

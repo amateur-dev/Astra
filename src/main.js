@@ -101,6 +101,23 @@ app.whenReady().then(() => {
   const ret = globalShortcut.register('CommandOrControl+Shift+V', () => {
     isRecording = !isRecording
     mainWindow.webContents.send('record-toggle', isRecording)
+    // If we've just stopped recording, trigger a centralized finalize flow that
+    // concatenates buffered WAVs, transcribes, optionally polishes with Ollama,
+    // and returns the final text. Also send the result to the renderer so it can
+    // display the final transcript and enable paste.
+    if (!isRecording) {
+      (async () => {
+        try {
+          const senderId = mainWindow && mainWindow.webContents ? String(mainWindow.webContents.id) : 'unknown'
+          const res = await finalizeLiveForSender(senderId)
+          try {
+            mainWindow.webContents.send('finalize-result', res)
+          } catch (e) { console.warn('failed to send finalize-result', e) }
+        } catch (e) {
+          console.error('finalize on stop failed', e)
+        }
+      })()
+    }
   })
   if (!ret) console.log('Global shortcut registration failed')
 
@@ -530,6 +547,91 @@ ipcMain.handle('transcribe', async (event, webmPath) => {
     return { ok: false, error: String(err) }
   }
 })
+
+// Centralized finalize: concatenate buffered WAVs for a sender, run transcription and optional Ollama polish.
+ipcMain.handle('finalize-live', async (event, senderId) => {
+  try {
+    const id = senderId || (event && event.sender && String(event.sender.id)) || 'unknown'
+    const res = await finalizeLiveForSender(id)
+    return res
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
+async function finalizeLiveForSender (senderId) {
+  try {
+    const state = liveMockState[senderId]
+    if (!state || !state.chunkWavs || state.chunkWavs.length === 0) return { ok: false, error: 'No audio buffered' }
+
+    const ffmpegCmd = await findFfmpeg()
+    if (!ffmpegCmd) return { ok: false, error: 'ffmpeg not found' }
+
+    // Use all available buffered wavs to build a combined final WAV.
+    const existing = []
+    for (const p of state.chunkWavs) {
+      try { if (fs.existsSync(p)) existing.push(p) } catch (e) {}
+    }
+    if (existing.length === 0) return { ok: false, error: 'No existing buffered WAVs' }
+
+    const listFile = path.join(os.tmpdir(), `voicehotkey-finalize-${Date.now()}.txt`)
+    const listContents = existing.map(p => `file '${String(p).replace(/'/g, "'\\\''")}'`).join('\n')
+    await fs.promises.writeFile(listFile, listContents)
+
+    const combinedPath = path.join(os.tmpdir(), `voicehotkey-final-${Date.now()}.wav`)
+    await new Promise((resolve, reject) => {
+      const cmd = `${JSON.stringify(ffmpegCmd)} -y -f concat -safe 0 -i ${JSON.stringify(listFile)} -ar 16000 -ac 1 ${JSON.stringify(combinedPath)}`
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) return reject(new Error('ffmpeg concat failed: ' + (stderr || err.message)))
+        resolve()
+      })
+    })
+
+    // Run transcription on combined WAV
+    const tx = await transcribeWav(combinedPath)
+    let finalText = ''
+    if (tx && tx.ok) finalText = tx.text || ''
+    else if (tx && tx.error) finalText = `⚠ Transcribe error: ${String(tx.error).slice(0,200)}`
+
+    // Optional Ollama polish
+    let polishMeta = null
+    try {
+      const ollamaEnabled = store.get('ollama_enabled') === true
+      if (ollamaEnabled && finalText && finalText.trim().length > 0) {
+        const polished = await polishWithOllama(finalText)
+        if (polished && polished.ok && polished.text) finalText = polished.text
+        polishMeta = polished || null
+      }
+    } catch (e) {
+      console.warn('Ollama polish failed during finalize', e)
+    }
+
+    const cleaned = cleanTranscript(finalText)
+
+    // If auto_paste is enabled, attempt paste
+    let pasteResult = null
+    try {
+      const autoPaste = store.get('auto_paste') === true
+      if (autoPaste && cleaned) {
+        try { clipboard.writeText(cleaned) } catch (e) {}
+        const as = 'tell application "System Events" to keystroke "v" using {command down}'
+        pasteResult = await new Promise((resolve) => {
+          exec(`osascript -e ${JSON.stringify(as)}`, (err, stdout, stderr) => {
+            if (err) return resolve({ ok: false, error: (stderr || err.message || String(err)).toString() })
+            resolve({ ok: true })
+          })
+        })
+      }
+    } catch (e) {
+      pasteResult = { ok: false, error: String(e) }
+    }
+
+    return { ok: true, text: cleaned, original: tx && tx.text ? tx.text : null, polish: polishMeta, pasteResult }
+  } catch (err) {
+    console.error('finalizeLiveForSender error', err)
+    return { ok: false, error: String(err) }
+  }
+}
 
 // helper: convert webm -> wav and run configured transcription command template
 async function transcribeWebm (webmPath) {

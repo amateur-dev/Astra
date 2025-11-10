@@ -274,6 +274,28 @@ if (window.electronAPI && window.electronAPI.onLivePatch) {
   })
 }
 
+  // Listen for centralized finalize result emitted by main and update UI + paste availability
+  if (window.electronAPI && window.electronAPI.onFinalizeResult) {
+    window.electronAPI.onFinalizeResult((res) => {
+      try {
+        const transcriptEl = document.getElementById('transcript')
+        const pasteBtn = document.getElementById('pasteBtn')
+        if (res && res.ok && res.text) {
+          if (transcriptEl) {
+            transcriptEl.textContent = res.text
+            transcriptEl.style.display = 'block'
+          }
+          if (pasteBtn) pasteBtn.disabled = false
+          const status = document.getElementById('status')
+          if (status) status.textContent = 'Finalized — ready to paste'
+        } else {
+          const status = document.getElementById('status')
+          if (status) status.textContent = `Finalize failed: ${res && res.error ? res.error : 'unknown'}`
+        }
+      } catch (e) { console.error('onFinalizeResult handler', e) }
+    })
+  }
+
 // Live capture UI removed: background PCM capture is started/stopped with the normal record hotkey flow.
 
 // Transcribe button handler
