@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   finalizeLive: (senderId) => ipcRenderer.invoke('finalize-live', senderId),
   // listen for finalize results emitted by main after hotkey stop
   onFinalizeResult: (cb) => ipcRenderer.on('finalize-result', (event, res) => cb(res)),
+  // clear buffered live audio for a sender (delete temp files and reset state)
+  clearLiveBuffer: (senderId) => ipcRenderer.invoke('clear-live-buffer', senderId),
   // open system microphone privacy settings
   openMicrophoneSettings: () => ipcRenderer.invoke('open-microphone-settings')
   ,
