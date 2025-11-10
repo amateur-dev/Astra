@@ -100,6 +100,11 @@ async function startRecording () {
                 transcriptEl.style.display = 'block'
               }
               if (pasteBtn) pasteBtn.disabled = false
+              const copyBtn = document.getElementById('copyBtn')
+              if (copyBtn) copyBtn.disabled = false
+              // hide any progress UI since we have a final-looking auto-transcript
+              const progressEl = document.getElementById('progress')
+              if (progressEl) progressEl.style.display = 'none'
               let statusMsg = `Auto-transcribed (wav: ${result.wav || 'unknown'})`
               if (result.originalText && result.originalText !== result.text) statusMsg += ' [Polished by Ollama]'
               if (result.polishError) statusMsg += ` [Polish error: ${result.polishError}]`
@@ -123,6 +128,10 @@ async function startRecording () {
                     transcriptEl.textContent = r.text
                     transcriptEl.style.display = 'block'
                     if (pasteBtn) pasteBtn.disabled = false
+                    const copyBtn = document.getElementById('copyBtn')
+                    if (copyBtn) copyBtn.disabled = false
+                    const progressEl = document.getElementById('progress')
+                    if (progressEl) progressEl.style.display = 'none'
                   }
                 } else {
                   status.textContent = 'No speech detected in recording (transcript empty).'
