@@ -278,19 +278,50 @@ if (window.electronAPI && window.electronAPI.onLivePatch) {
       try {
         const transcriptEl = document.getElementById('transcript')
         const pasteBtn = document.getElementById('pasteBtn')
+        const copyBtn = document.getElementById('copyBtn')
         const progressEl = document.getElementById('progress')
         const progressText = document.getElementById('progressText')
+        // hide progress UI
         if (progressEl) progressEl.style.display = 'none'
+
         if (res && res.ok && res.text) {
+          // show only the polished final text
           if (transcriptEl) {
             transcriptEl.textContent = res.text
             transcriptEl.style.display = 'block'
           }
+          // enable copy and paste controls
           if (pasteBtn) pasteBtn.disabled = false
+          if (copyBtn) copyBtn.disabled = false
+
+          // Update status depending on whether main already attempted auto-paste
           const status = document.getElementById('status')
-          if (status) status.textContent = 'Finalized — ready to paste'
-          // show simple confetti emoji to indicate completion
+          if (res.pasteResult && res.pasteResult.ok) {
+            if (status) status.textContent = 'Finalized — pasted into front app.'
+          } else if (res.pasteResult && !res.pasteResult.ok) {
+            if (status) status.textContent = `Finalized — paste failed: ${res.pasteResult.error}`
+          } else {
+            // attempt to auto-paste from renderer as a fallback
+            (async () => {
+              try {
+                if (pasteBtn) {
+                  // call main paste handler via preload
+                  const pasteRes = await window.electronAPI.pasteToFront(res.text)
+                  if (pasteRes && pasteRes.ok) {
+                    if (status) status.textContent = 'Finalized — pasted into front app.'
+                  } else {
+                    if (status) status.textContent = 'Finalized — ready to paste'
+                  }
+                }
+              } catch (e) {
+                if (status) status.textContent = 'Finalized — ready to paste'
+              }
+            })()
+          }
+
+          // show confetti via emoji markers around the transcript
           if (transcriptEl) transcriptEl.textContent = '\n🎉 ' + transcriptEl.textContent + ' 🎉\n'
+
         } else {
           const status = document.getElementById('status')
           if (status) status.textContent = `Finalize failed: ${res && res.error ? res.error : 'unknown'}`
@@ -358,6 +389,26 @@ if (window.electronAPI && window.electronAPI.onLivePatch) {
         status.textContent = 'Paste failed: ' + err
       } finally {
         pasteBtn.disabled = false
+      }
+    })
+  }
+  // Copy button wiring (separate from finalize handler so it remains usable)
+  const copyBtnStatic = document.getElementById('copyBtn')
+  if (copyBtnStatic) {
+    copyBtnStatic.addEventListener('click', async () => {
+      try {
+        const transcriptEl = document.getElementById('transcript')
+        if (!transcriptEl) return
+        const text = transcriptEl.textContent || ''
+        if (!text) return
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text)
+        } else {
+          try { await window.electronAPI.pasteToFront(text) } catch (e) { /* ignore */ }
+        }
+        status.textContent = 'Copied to clipboard.'
+      } catch (err) {
+        status.textContent = 'Copy failed: ' + err
       }
     })
   }
