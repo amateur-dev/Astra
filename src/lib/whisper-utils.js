@@ -17,14 +17,22 @@ async function checkWhisperAvailability (tplOverride) {
       }
     }
 
-    const found = await new Promise((resolve) => {
+    // Try common binary names in order. Many builds name the binary `whisper-cli`.
+    const candidates = ['whisper', 'whisper-cli']
+    let found = null
+    for (const name of candidates) {
+      // require exec at call-time so tests can stub it
       const { exec } = require('child_process')
-      exec('which whisper', (err, stdout) => {
-        if (err) return resolve(null)
-        const p = stdout && stdout.toString().trim()
-        resolve(p || null)
+      // eslint-disable-next-line no-await-in-loop
+      const p = await new Promise((resolve) => {
+        exec(`which ${name}`, (err, stdout) => {
+          if (err) return resolve(null)
+          const out = stdout && stdout.toString().trim()
+          resolve(out || null)
+        })
       })
-    })
+      if (p) { found = p; break }
+    }
     if (found) return { ok: true, path: found, source: 'which' }
     return { ok: false, error: 'whisper binary not found on PATH' }
   } catch (err) {
