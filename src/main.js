@@ -4,7 +4,38 @@ const fs = require('fs')
 const os = require('os')
 const { exec } = require('child_process')
 const Store = require('electron-store')
-const store = new Store()
+let store = new Store()
+
+// Defensive fallback: some packaged environments may not expose electron-store
+// correctly. If `store.set` is missing, replace `store` with a simple file-backed
+// shim that persists settings to ~/.voicehotkey-settings.json to avoid runtime
+// TypeErrors and provide sensible defaults.
+try {
+  if (!store || typeof store.set !== 'function') {
+    const fallbackPath = path.join(os.homedir() || process.env.HOME || '.', '.voicehotkey-settings.json')
+    let _cache = {}
+    try {
+      if (fs.existsSync(fallbackPath)) {
+        _cache = JSON.parse(fs.readFileSync(fallbackPath, 'utf8') || '{}')
+      }
+    } catch (e) { _cache = {} }
+    const shim = {
+      get: (k) => (_cache && Object.prototype.hasOwnProperty.call(_cache, k) ? _cache[k] : undefined),
+      set: (k, v) => {
+        try {
+          _cache[k] = v
+          fs.writeFileSync(fallbackPath, JSON.stringify(_cache, null, 2), 'utf8')
+        } catch (e) {
+          console.error('fallback store write failed', e)
+        }
+      }
+    }
+    store = shim
+    console.warn('electron-store unavailable; using fallback file store at', fallbackPath)
+  }
+} catch (e) {
+  console.warn('store initialization check failed', e)
+}
 
 // Resolve a usable `fetch` in the main process.
 // Prefer a built-in/global fetch (available in newer Node/Electron), then try
@@ -49,6 +80,16 @@ if (!fetch) {
 let mainWindow = null
 let tray = null
 let isRecording = false
+// Import pure helpers from lib so they can be unit-tested independently
+const { cleanTranscript, extractTimestampFromText } = require('./lib/transcript-utils')
+const { checkWhisperAvailability } = require('./lib/whisper-utils')
+
+// Enforce Whisper usage when available
+const ENFORCE_WHISPER = true
+let whisperStatus = null
+let forcedTranscribeCmd = null
+
+// Note: whisper availability is determined by `src/lib/whisper-utils.js`
 
 function createWindow () {
   mainWindow = new BrowserWindow({
@@ -74,6 +115,14 @@ function createWindow () {
     console.warn('Permission handler setup failed', e)
   }
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  // When the renderer finishes loading, send any cached availability status so
+  // the UI gets accurate startup state even if the main process determined
+  // availability before the renderer had attached its IPC listeners.
+  try {
+    mainWindow.webContents.on('did-finish-load', () => {
+      try { if (whisperStatus && mainWindow && mainWindow.webContents) mainWindow.webContents.send('whisper-status', whisperStatus) } catch (e) {}
+    })
+  } catch (e) { /* ignore */ }
 }
 
 function createTray () {
@@ -102,9 +151,183 @@ app.whenReady().then(() => {
   })
   if (!ret) console.log('Global shortcut registration failed')
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
+  if (app && typeof app.on === 'function') {
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  } else {
+    console.warn('app.on is not available in this runtime; skipping activate handler')
+  }
+  // Check for Whisper availability at startup, enforce if requested, and notify renderer.
+  (async () => {
+    try {
+      const ws = await checkWhisperAvailability()
+      whisperStatus = ws
+      if (ws && ws.ok) {
+        // Prefer the detected whisper binary as the forced transcribe command
+        forcedTranscribeCmd = `${ws.path} {wav}`
+        // If the user hasn't configured a transcription template, try to
+        // auto-detect a ggml model file near common locations and persist
+        // a fuller template including `-m <model>` so whisper-cli won't try
+        // to load a relative 'models/...' path that doesn't exist.
+        try {
+          const existingTpl = store.get('transcribe_cmd') || ''
+          if (!existingTpl || String(existingTpl).trim().length === 0) {
+            const model = findLocalWhisperModel(ws.path)
+            if (model) {
+              const autoTpl = `${ws.path} -m ${model} -f {wav}`
+              store.set('transcribe_cmd', autoTpl)
+              forcedTranscribeCmd = autoTpl
+              console.log('Auto-saved transcribe_cmd with detected model:', autoTpl)
+            }
+          }
+        } catch (e) {
+          console.warn('auto-save whisper model failed', e)
+        }
+      }
+      try { if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('whisper-status', ws) } catch (e) { /* ignore */ }
+    } catch (e) {
+      whisperStatus = { ok: false, error: String(e) }
+      try { if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('whisper-status', { ok: false, error: String(e) }) } catch (ee) {}
+    }
+    // Automated smoke-run helper (development only). When SMOKE_TEST=1 is set in
+    // the environment, perform a quick settings save + whisper detection + model
+    // existence check using example paths and exit. This helps validate the
+    // packaged behavior in CI or on local builders without manual UI interaction.
+    try {
+      if (process.env.SMOKE_TEST === '1') {
+        console.log('SMOKE_TEST enabled: running automated smoke checks')
+        // Example test values — adjust as appropriate for your CI/user.
+        const exampleBin = process.env.SMOKE_WHISPER_BIN || '/Users/dk_sukhani/whisper.cpp/build/bin/whisper-cli'
+        const exampleModel = process.env.SMOKE_WHISPER_MODEL || '/Users/dk_sukhani/models/ggml-tiny.en.bin'
+        const tpl = `${exampleBin} -m ${exampleModel} -f {wav}`
+        try { store.set('transcribe_cmd', tpl) } catch (e) { console.warn('SMOKE_TEST: store.set failed', e) }
+        const ws2 = await checkWhisperAvailability(tpl)
+        console.log('SMOKE_TEST: whisper-status ->', ws2)
+        const modelExists = fs.existsSync(exampleModel)
+        console.log(`SMOKE_TEST: model ${exampleModel} exists=${modelExists}`)
+        // Exit with non-zero code if checks failed to surface CI errors
+        if (!ws2 || !ws2.ok || !modelExists) {
+          console.error('SMOKE_TEST: FAILED')
+          // allow a short delay for logs to flush
+          setTimeout(() => { process.exit(2) }, 200)
+        } else {
+          console.log('SMOKE_TEST: OK')
+          setTimeout(() => { process.exit(0) }, 200)
+        }
+      }
+    } catch (e) {
+      console.error('SMOKE_TEST runner error', e)
+      setTimeout(() => { process.exit(3) }, 200)
+    }
+  })()
+})
+
+// Try to locate a local ggml Whisper model near the given whisper binary
+// or in common locations. Returns an absolute path to the model file or
+// null when nothing is found.
+function findLocalWhisperModel (whisperBinaryPath) {
+  try {
+    const candidates = []
+    const home = process.env.HOME || ''
+    // model next to whisper.cpp build: ../models/*.bin
+    if (whisperBinaryPath) {
+      try {
+        const binDir = path.dirname(whisperBinaryPath)
+        candidates.push(path.join(binDir, '..', 'models'))
+        candidates.push(path.join(binDir, '..', '..', 'models'))
+      } catch (e) {}
+    }
+    // common build location in user's home (when building whisper.cpp)
+    if (home) candidates.push(path.join(home, 'whisper.cpp', 'models'))
+    // repository-local models folder
+    candidates.push(path.join(process.cwd(), 'models'))
+
+    for (const dir of candidates) {
+      try {
+        if (!dir) continue
+        if (!fs.existsSync(dir)) continue
+        const files = fs.readdirSync(dir)
+        for (const f of files) {
+          if (/ggml.*\.bin$/i.test(f)) return path.join(dir, f)
+        }
+      } catch (e) { /* ignore */ }
+    }
+    return null
+  } catch (err) {
+    console.warn('findLocalWhisperModel error', err)
+    return null
+  }
+}
+
+// Download a ggml model file from known URLs into the user's
+// ~/whisper.cpp/models or app models folder. Returns the absolute path on success.
+ipcMain.handle('download-model', async (event, modelId) => {
+  try {
+    const urls = {
+      tiny: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin',
+      small: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin',
+      base: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin'
+    }
+    const url = urls[modelId]
+    if (!url) return { ok: false, error: 'unknown model id' }
+
+    const destDir = path.join(process.env.HOME || os.homedir(), 'whisper.cpp', 'models')
+    await fs.promises.mkdir(destDir, { recursive: true })
+    const dest = path.join(destDir, path.basename(url))
+    const tmp = dest + '.download'
+
+    // simple redirect-following downloader using https
+    const https = require('https')
+    const maxRedirects = 5
+    let current = url
+    let redirects = 0
+    const download = () => new Promise((resolve, reject) => {
+      const doRequest = (u) => {
+        const req = https.get(u, (res) => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects < maxRedirects) {
+            redirects++
+            current = res.headers.location
+            doRequest(current)
+            return
+          }
+          if (res.statusCode !== 200) return reject(new Error('Download failed: ' + res.statusCode))
+          const total = parseInt(res.headers['content-length'] || '0', 10)
+          const file = fs.createWriteStream(tmp)
+          let downloaded = 0
+          res.on('data', (chunk) => {
+            downloaded += chunk.length
+            // emit progress to renderer
+            try { if (event && event.sender) event.sender.send('download-model-progress', { modelId, total, downloaded }) } catch (e) {}
+          })
+          res.pipe(file)
+          file.on('finish', () => file.close(() => resolve()))
+          file.on('error', (err) => reject(err))
+        })
+        req.on('error', (err) => reject(err))
+      }
+      doRequest(current)
+    })
+
+    await download()
+    // move tmp -> dest (overwrite)
+    await fs.promises.rename(tmp, dest)
+    // notify final progress
+    try { if (event && event.sender) event.sender.send('download-model-progress', { modelId, total: (await fs.promises.stat(dest)).size, downloaded: (await fs.promises.stat(dest)).size }) } catch (e) {}
+
+    // update store transcribe_cmd if none exists
+    try {
+      const existing = store.get('transcribe_cmd') || ''
+      if (!existing || String(existing).trim().length === 0) {
+        const defaultCmd = `whisper-cli -m ${dest} -f {wav}`
+        store.set('transcribe_cmd', defaultCmd)
+      }
+    } catch (e) { /* ignore store errors */ }
+
+    return { ok: true, path: dest }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
 })
 
 app.on('will-quit', () => {
@@ -112,6 +335,16 @@ app.on('will-quit', () => {
 })
 
 ipcMain.handle('app-version', () => app.getVersion())
+
+// Allow renderer to query whisper availability on demand
+ipcMain.handle('whisper-status', async () => {
+  try {
+    const ws = await checkWhisperAvailability()
+    return ws
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
 
 // Settings persistence: store a transcription command template under key 'transcribe_cmd'
 ipcMain.handle('get-settings', () => {
@@ -143,6 +376,20 @@ ipcMain.handle('save-settings', (event, settings) => {
     if (typeof settings.ollama_model === 'string') store.set('ollama_model', settings.ollama_model)
     if (typeof settings.ollama_enabled === 'boolean') store.set('ollama_enabled', settings.ollama_enabled)
     if (typeof settings.auto_paste === 'boolean') store.set('auto_paste', settings.auto_paste)
+    // After saving settings, re-check Whisper availability so the UI can update immediately
+    (async () => {
+      try {
+        const ws = await checkWhisperAvailability(store.get('transcribe_cmd'))
+        whisperStatus = ws
+        if (ws && ws.ok) {
+          forcedTranscribeCmd = `${ws.path} {wav}`
+        }
+        try { if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('whisper-status', ws) } catch (e) {}
+      } catch (e) {
+        whisperStatus = { ok: false, error: String(e) }
+        try { if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('whisper-status', whisperStatus) } catch (ee) {}
+      }
+    })()
     return { ok: true }
   } catch (err) {
     return { ok: false, error: String(err) }
@@ -281,6 +528,32 @@ ipcMain.handle('paste-into-front', async (event, text) => {
   }
 })
 
+// Return the current frontmost application name (macOS) for diagnostics
+ipcMain.handle('get-frontmost-app', async () => {
+  try {
+    const name = await getFrontmostApp()
+    return { ok: true, name }
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+})
+
+// Accept live audio WAV chunks (Uint8Array) from the renderer and save to
+// a temp file. This avoids a runtime 'No handler registered for
+// "send-audio-chunk"' error when the renderer invokes the channel.
+ipcMain.handle('send-audio-chunk', async (event, uint8Array) => {
+  try {
+    if (!uint8Array) return { ok: false, error: 'No data' }
+    const buffer = Buffer.from(uint8Array)
+    const filename = path.join(os.tmpdir(), `voicehotkey-chunk-${Date.now()}-${Math.floor(Math.random() * 1000000)}.wav`)
+    await fs.promises.writeFile(filename, buffer)
+    return { ok: true, path: filename }
+  } catch (err) {
+    console.error('send-audio-chunk handler error', err)
+    return { ok: false, error: String(err) }
+  }
+})
+
 // Save a recording sent from renderer (Uint8Array) to a temp file and return its path
 ipcMain.handle('save-recording', async (event, uint8Array) => {
   try {
@@ -372,6 +645,10 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
 ipcMain.handle('transcribe', async (event, webmPath) => {
   try {
     if (!webmPath || typeof webmPath !== 'string') return { ok: false, error: 'Invalid path' }
+    // Enforce Whisper availability if configured
+    if (ENFORCE_WHISPER && (!whisperStatus || !whisperStatus.ok)) {
+      return { ok: false, error: 'Whisper is required but not available on this system.' }
+    }
     // ensure ffmpeg exists
     const ffmpegCmd = 'ffmpeg'
     // create wav path
@@ -405,12 +682,35 @@ async function transcribeWebm (webmPath) {
       })
     })
 
-    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || null
+    // If Whisper is enforced, require it to be available
+    if (ENFORCE_WHISPER && (!whisperStatus || !whisperStatus.ok)) {
+      return { ok: false, error: 'Whisper is required but not available. Please install or configure Whisper.' }
+    }
+
+    // Resolve transcription command template.
+    // Preference order: saved setting (user), TRANSCRIBE_CMD env, WHISPER_CMD env, then any forcedTranscribeCmd detected earlier.
+    let tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || forcedTranscribeCmd || null
     if (!tpl) {
       return { ok: false, error: 'No transcription command configured. Set TRANSCRIBE_CMD env variable or save settings in app.' }
     }
 
+    // If the template doesn't include an explicit model (-m), try to find a local ggml model and inject it.
+    try {
+      if (!/\-m\s+/i.test(tpl)) {
+        const detectedModel = findLocalWhisperModel(tpl && typeof tpl === 'string' ? tpl : null)
+        if (detectedModel) {
+          // prefer to insert before the {wav} placeholder if possible
+          if (/{wav}/.test(tpl)) tpl = tpl.replace(/{wav}/g, `-m ${JSON.stringify(detectedModel)} {wav}`)
+          else tpl = `${tpl} -m ${JSON.stringify(detectedModel)} {wav}`
+        }
+      }
+    } catch (e) {
+      console.warn('model injection failed', e)
+    }
+
     const cmd = tpl.replace(/{wav}/g, JSON.stringify(wavPath))
+    // Log the final command for easier debugging (safe: paths only)
+    try { console.log('Running transcription command:', cmd) } catch (e) {}
 
     const transcript = await new Promise((resolve, reject) => {
       exec(cmd, { maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
@@ -501,7 +801,26 @@ async function polishWithOllama (text) {
           continue
         }
         const data = await response.json()
-        const polishedText = data.response || text
+        let polishedText = data.response || text
+
+        // If Ollama removed timestamps and inserted a placeholder like
+        // "[removed timestamp]", try to recover a timestamp-like token
+        // from the original transcript and re-insert it. This helps when
+        // the LLM aggressively strips timecodes but the raw ASR captured
+        // a human-readable datetime that should be preserved.
+        try {
+          const placeholderRE = /\[removed timestamp\]|\[removed time\]|\[timestamp removed\]|\[removed\s?time\]/i
+          if (placeholderRE.test(polishedText)) {
+            const found = extractTimestampFromText(text)
+            if (found) {
+              polishedText = polishedText.replace(placeholderRE, found)
+            }
+          }
+        } catch (e) {
+          // non-fatal — continue with the polished text
+          console.warn('Timestamp reinsertion failed', e)
+        }
+
         return { ok: true, text: polishedText, used: base, tried: candidates }
       } catch (err) {
         // record the error and try next candidate
@@ -518,40 +837,9 @@ async function polishWithOllama (text) {
   }
 }
 
-// helper: clean transcript text by removing common timestamp lines, any
-// trailing 'I made the following changes' caveat and list items, and
-// collapse everything into a single paragraph. This is a best-effort
-// normalizer to make transcripts more user-friendly.
-function cleanTranscript (text) {
-  try {
-    if (!text || typeof text !== 'string') return text
-    // Split into lines and drop lines that look like timestamps or are empty
-    const rawLines = text.split(/\r?\n/)
-    const lines = []
-    for (let i = 0; i < rawLines.length; i++) {
-      let line = rawLines[i].trim()
-      if (!line) continue
-      // If the line contains a timestamp pattern like 00:00:00 or 00:00:00.000 or an arrow -->, drop it
-      if (/\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?/.test(line)) continue
-      if (/-->|→/.test(line)) continue
-      // Remove common bullet markers
-      line = line.replace(/^\s*[-*•]\s+/, '')
-      // If this line starts the caveat about changes, stop processing further lines
-      if (/^I made the following changes/i.test(line) || /^I made some changes/i.test(line)) break
-      lines.push(line)
-    }
-
-  if (lines.length === 0) return ''
-  // Join into a single paragraph and normalize whitespace
-  let paragraph = lines.join(' ').replace(/\s+/g, ' ').trim()
-  // Strip common leading labels that models sometimes add, e.g. "Here is the cleaned transcript:"
-  paragraph = paragraph.replace(/^(?:here\s+is(?:\s+the)?|here'?s(?:\s+the)?|cleaned\s+transcript)[:\-\s]*/i, '')
-  return paragraph
-  } catch (err) {
-    console.error('cleanTranscript error', err)
-    return text
-  }
-}
+// NOTE: `cleanTranscript` and `extractTimestampFromText` are provided by
+// `src/lib/transcript-utils.js` to allow unit testing without loading the
+// entire Electron main process.
 
 // helper: locate ffmpeg binary. Checks user-configured path, system paths, and bundled resources
 async function findFfmpeg () {

@@ -11,11 +11,15 @@
       Microphone permission: <span id="micStatus">unknown</span>
       <button id="openMicSettingsBtn" style="margin-left:8px">Open Microphone Settings</button>
     </div>
-    <button id="recordBtn">Start Recording</button>
-    <button id="transcribeBtn" disabled>Transcribe</button>
-    <pre id="transcript" style="white-space:pre-wrap; background:#f6f6f6; padding:8px; border-radius:4px; display:none"></pre>
+  <button id="recordBtn">Start Recording</button>
+  <button id="transcribeBtn" disabled>Transcribe</button>
+  <button id="clearBtn" style="margin-left:8px">Clear & Re-record</button>
+  <div id="progress" style="margin-top:8px; display:none">Status: <span id="progressText">Idle</span></div>
+  <pre id="transcript" style="white-space:pre-wrap; background:#f6f6f6; padding:8px; border-radius:4px; display:none"></pre>
+    <!-- Live capture runs in the background and is not shown in the UI when using hotkey flow -->
     <div style="margin-top:8px">
       <button id="pasteBtn" disabled>Paste into Front App</button>
+      <button id="copyBtn" style="margin-left:8px" disabled>Copy</button>
     </div>
     <hr />
     <h3>Settings</h3>
@@ -33,6 +37,26 @@
       <label>Model path (-m):<br/>
         <input id="modelPath" type="text" style="width:100%" placeholder="/Users/you/models/ggml-tiny.en.bin" />
       </label>
+    </div>
+    <div style="margin-top:8px">
+      <label>Download prebuilt ggml models:<br/>
+        <button id="downloadTinyBtn">Download tiny (smallest)</button>
+        <button id="downloadSmallBtn">Download small</button>
+        <button id="downloadBaseBtn">Download base</button>
+      </label>
+      <div id="downloadStatus" style="margin-top:6px; white-space:nowrap"></div>
+      <div id="downloadProgress" style="width:100%; height:8px; background:#eee; border-radius:4px; display:none; margin-top:6px"><div id="downloadProgressBar" style="height:100%; width:0%; background:linear-gradient(90deg,#4caf50,#8bc34a); border-radius:4px"></div></div>
+    </div>
+    <!-- Confirmation modal for large downloads -->
+    <div id="downloadConfirmModal" style="display:none; position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.45); align-items:center; justify-content:center">
+      <div style="background:#fff; padding:16px; width:420px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.25); margin:40px auto;">
+        <h4 id="downloadConfirmTitle">Confirm download</h4>
+        <p id="downloadConfirmBody">Confirm download?</p>
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px">
+          <button id="downloadCancelBtn">Cancel</button>
+          <button id="downloadConfirmBtn">Download</button>
+        </div>
+      </div>
     </div>
     <div style="margin-top:8px">
       <label><input id="autoTranscribe" type="checkbox" /> Auto-transcribe after saving recording</label>
@@ -56,6 +80,7 @@
     <div style="margin-top:8px">
       <button id="saveSettingsBtn">Save Settings</button>
       <button id="testSettingsBtn">Test Settings</button>
+      <button id="recheckWhisperBtn" style="margin-left:8px">Re-check Whisper</button>
       <div id="settingsResult" style="margin-top:8px; white-space:pre-wrap"></div>
     </div>
     <script src="renderer.js"></script>
