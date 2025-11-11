@@ -1,4 +1,5 @@
 const fs = require('fs')
+const path = require('path')
 // We require child_process at call-time so tests can stub `child_process.exec`
 
 // Check whether a 'whisper' binary is available on PATH or referenced in a
