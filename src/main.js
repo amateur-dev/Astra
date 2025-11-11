@@ -50,6 +50,36 @@ let mainWindow = null
 let tray = null
 let isRecording = false
 
+// Check whether a 'whisper' binary is available on PATH. Returns {ok, path}
+async function checkWhisperAvailability () {
+  try {
+    // First, try to find a configured transcription command that explicitly
+    // mentions whisper in settings/env. If so, prefer that resolution path.
+    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || ''
+    if (tpl && /whisper/i.test(tpl)) {
+      // If the configured template references an explicit path, try resolving the binary token
+      const binMatch = tpl.match(/^\s*(?:"|')?(.*?)(?:"|')?(?:\s|$)/)
+      if (binMatch && binMatch[1]) {
+        const explicit = binMatch[1]
+        if (fs.existsSync(explicit)) return { ok: true, path: explicit, source: 'configured' }
+      }
+    }
+
+    // Fallback: try `which whisper`
+    const found = await new Promise((resolve) => {
+      exec('which whisper', (err, stdout) => {
+        if (err) return resolve(null)
+        const p = stdout && stdout.toString().trim()
+        resolve(p || null)
+      })
+    })
+    if (found) return { ok: true, path: found, source: 'which' }
+    return { ok: false, error: 'whisper binary not found on PATH' }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+}
+
 function createWindow () {
   mainWindow = new BrowserWindow({
     width: 400,
@@ -105,6 +135,15 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+  // Check for Whisper availability at startup and notify renderer.
+  (async () => {
+    try {
+      const ws = await checkWhisperAvailability()
+      try { if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('whisper-status', ws) } catch (e) { /* ignore */ }
+    } catch (e) {
+      try { if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('whisper-status', { ok: false, error: String(e) }) } catch (ee) {}
+    }
+  })()
 })
 
 app.on('will-quit', () => {
@@ -112,6 +151,16 @@ app.on('will-quit', () => {
 })
 
 ipcMain.handle('app-version', () => app.getVersion())
+
+// Allow renderer to query whisper availability on demand
+ipcMain.handle('whisper-status', async () => {
+  try {
+    const ws = await checkWhisperAvailability()
+    return ws
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
 
 // Settings persistence: store a transcription command template under key 'transcribe_cmd'
 ipcMain.handle('get-settings', () => {
