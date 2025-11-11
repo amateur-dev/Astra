@@ -39,6 +39,15 @@
       </label>
     </div>
     <div style="margin-top:8px">
+      <label>Download prebuilt ggml models:<br/>
+        <button id="downloadTinyBtn">Download tiny (smallest)</button>
+        <button id="downloadSmallBtn">Download small</button>
+        <button id="downloadBaseBtn">Download base</button>
+      </label>
+      <div id="downloadStatus" style="margin-top:6px; white-space:nowrap"></div>
+      <div id="downloadProgress" style="width:100%; height:8px; background:#eee; border-radius:4px; display:none; margin-top:6px"><div id="downloadProgressBar" style="height:100%; width:0%; background:linear-gradient(90deg,#4caf50,#8bc34a); border-radius:4px"></div></div>
+    </div>
+    <div style="margin-top:8px">
       <label><input id="autoTranscribe" type="checkbox" /> Auto-transcribe after saving recording</label>
     </div>
     <div style="margin-top:8px">

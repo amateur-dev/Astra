@@ -351,6 +351,30 @@ if (window.electronAPI && window.electronAPI.onWhisperStatus) {
         try {
           const wb = document.getElementById('whisperBin')
           if (wb && (!wb.value || wb.value.trim().length === 0) && st.path) wb.value = st.path
+          // Auto-save detected Whisper path into Settings if the user hasn't configured a transcription template yet.
+          ;(async () => {
+            try {
+              if (!st || !st.path) return
+              const cur = await window.electronAPI.getSettings()
+              const tpl = cur && cur.transcribe_cmd ? (String(cur.transcribe_cmd).trim()) : ''
+              // Only auto-save when there is no existing template configured.
+              if (!tpl || tpl.length === 0) {
+                // Try to preserve a model path if user filled it in the UI
+                const modelInput = document.getElementById('modelPath')
+                const model = modelInput && modelInput.value && modelInput.value.trim().length > 0 ? modelInput.value.trim() : null
+                const newTpl = model ? `${st.path} -m ${model} -f {wav}` : `${st.path} {wav}`
+                try {
+                  await window.electronAPI.saveSettings({ transcribe_cmd: newTpl })
+                  const settingsResult = document.getElementById('settingsResult')
+                  if (settingsResult) settingsResult.textContent = 'Auto-saved detected Whisper binary into Settings.'
+                } catch (e) {
+                  console.error('Failed to auto-save Whisper path to settings', e)
+                }
+              }
+            } catch (e) {
+              console.error('auto-save whisper path error', e)
+            }
+          })()
         } catch (e) { /* ignore UI autofill errors */ }
       }
     } catch (e) { console.error('onWhisperStatus handler', e) }
@@ -771,5 +795,87 @@ function setupAutomationTest () {
     } finally {
       clearBtn.disabled = false
     }
+  })
+})()
+
+// Model download UI wiring
+;(function setupModelDownloadUI() {
+  document.addEventListener('DOMContentLoaded', () => {
+    const tiny = document.getElementById('downloadTinyBtn')
+    const small = document.getElementById('downloadSmallBtn')
+    const base = document.getElementById('downloadBaseBtn')
+    const statusEl = document.getElementById('downloadStatus')
+    const progressWrap = document.getElementById('downloadProgress')
+    const progressBar = document.getElementById('downloadProgressBar')
+    const modelPathInput = document.getElementById('modelPath')
+
+    if (!window.electronAPI || !window.electronAPI.downloadModel) return
+
+    let currentId = null
+
+    const onProgress = (p) => {
+      try {
+        if (!p || !p.modelId) return
+        if (currentId && p.modelId !== currentId) return
+        if (progressWrap) progressWrap.style.display = 'block'
+        const total = p.total || 0
+        const downloaded = p.downloaded || 0
+        if (total > 0) {
+          const pct = Math.round((downloaded / total) * 100)
+          if (progressBar) progressBar.style.width = pct + '%'
+          if (statusEl) statusEl.textContent = `Downloading ${p.modelId}: ${pct}% (${(downloaded/1024/1024).toFixed(2)} MB of ${(total/1024/1024).toFixed(2)} MB)`
+        } else {
+          if (statusEl) statusEl.textContent = `Downloading ${p.modelId}: ${(downloaded/1024/1024).toFixed(2)} MB` }
+      } catch (e) { console.warn('download progress handler', e) }
+    }
+
+    // subscribe once
+    try { window.electronAPI.onDownloadProgress((p) => onProgress(p)) } catch (e) { /* ignore */ }
+
+    async function startDownload (id) {
+      try {
+        currentId = id
+        if (statusEl) statusEl.textContent = `Starting download (${id})...`
+        if (progressBar) progressBar.style.width = '0%'
+        if (progressWrap) progressWrap.style.display = 'block'
+        // disable buttons while downloading
+        if (tiny) tiny.disabled = true
+        if (small) small.disabled = true
+        if (base) base.disabled = true
+
+        const res = await window.electronAPI.downloadModel(id)
+        if (res && res.ok) {
+          if (modelPathInput) modelPathInput.value = res.path
+          if (statusEl) statusEl.textContent = `Downloaded ${id} -> ${res.path}`
+          // if no transcribe template configured, auto-save one using whisper-cli
+          try {
+            const cur = await window.electronAPI.getSettings()
+            const tpl = cur && cur.transcribe_cmd ? String(cur.transcribe_cmd).trim() : ''
+            if (!tpl || tpl.length === 0) {
+              // try to use any detected whisper binary from the whisperBin input, else just set whisper-cli
+              const whisperBin = document.getElementById('whisperBin') && document.getElementById('whisperBin').value ? document.getElementById('whisperBin').value.trim() : 'whisper-cli'
+              const newTpl = `${whisperBin} -m ${res.path} -f {wav}`
+              await window.electronAPI.saveSettings({ transcribe_cmd: newTpl })
+              const settingsResult = document.getElementById('settingsResult')
+              if (settingsResult) settingsResult.textContent = 'Auto-saved transcribe_cmd with downloaded model.'
+            }
+          } catch (e) { console.warn('auto-save after download failed', e) }
+        } else {
+          if (statusEl) statusEl.textContent = `Download failed: ${res && res.error ? res.error : 'unknown'}`
+        }
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Download error: ${err && err.message ? err.message : err}`
+      } finally {
+        currentId = null
+        if (tiny) tiny.disabled = false
+        if (small) small.disabled = false
+        if (base) base.disabled = false
+        setTimeout(() => { if (progressWrap) progressWrap.style.display = 'none' }, 1500)
+      }
+    }
+
+    if (tiny) tiny.addEventListener('click', () => startDownload('tiny'))
+    if (small) small.addEventListener('click', () => startDownload('small'))
+    if (base) base.addEventListener('click', () => startDownload('base'))
   })
 })()
