@@ -38,6 +38,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Whisper availability status (main will emit at startup)
   onWhisperStatus: (cb) => ipcRenderer.on('whisper-status', (event, status) => cb(status)),
   getWhisperStatus: () => ipcRenderer.invoke('whisper-status'),
+  // model download helper
+  downloadModel: (modelId) => ipcRenderer.invoke('download-model', modelId),
+  onDownloadProgress: (cb) => ipcRenderer.on('download-model-progress', (event, progress) => cb(progress)),
   // automation / apple events helpers
   testAutomation: () => ipcRenderer.invoke('test-automation'),
   openAutomationSettings: () => ipcRenderer.invoke('open-automation-settings')
