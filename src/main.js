@@ -115,6 +115,14 @@ function createWindow () {
     console.warn('Permission handler setup failed', e)
   }
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  // When the renderer finishes loading, send any cached availability status so
+  // the UI gets accurate startup state even if the main process determined
+  // availability before the renderer had attached its IPC listeners.
+  try {
+    mainWindow.webContents.on('did-finish-load', () => {
+      try { if (whisperStatus && mainWindow && mainWindow.webContents) mainWindow.webContents.send('whisper-status', whisperStatus) } catch (e) {}
+    })
+  } catch (e) { /* ignore */ }
 }
 
 function createTray () {
