@@ -705,8 +705,36 @@ if (window.electronAPI && window.electronAPI.onLivePatch) {
   document.addEventListener('DOMContentLoaded', () => {
     const saveBtn = document.getElementById('saveSettingsBtn')
     const testBtn = document.getElementById('testSettingsBtn')
+    const recheckBtn = document.getElementById('recheckWhisperBtn')
     if (saveBtn) saveBtn.addEventListener('click', saveSettings)
     if (testBtn) testBtn.addEventListener('click', testSettings)
+    if (recheckBtn) recheckBtn.addEventListener('click', async () => {
+      try {
+        recheckBtn.disabled = true
+        const sr = document.getElementById('settingsResult')
+        if (sr) sr.textContent = 'Re-checking Whisper...'
+        const st = await window.electronAPI.getWhisperStatus()
+        if (!st) {
+          if (sr) sr.textContent = 'No response from main.'
+        } else if (!st.ok) {
+          if (sr) sr.textContent = `Whisper not found: ${st.error || 'unknown'}`
+          const statusEl = document.getElementById('status')
+          if (statusEl) statusEl.textContent = `Whisper unavailable: ${st && st.error ? st.error : 'whisper binary not found on PATH'}`
+        } else {
+          // populate whisper bin input and inform user
+          const whisperBin = document.getElementById('whisperBin')
+          if (whisperBin && st.path) whisperBin.value = st.path
+          if (sr) sr.textContent = `Whisper detected at ${st.path} (source: ${st.source || 'detected'})`
+          const statusEl = document.getElementById('status')
+          if (statusEl) statusEl.textContent = 'Ready (Whisper connected)'
+        }
+      } catch (e) {
+        const sr = document.getElementById('settingsResult')
+        if (sr) sr.textContent = 'Re-check failed: ' + e
+      } finally {
+        try { recheckBtn.disabled = false } catch (e) {}
+      }
+    })
     loadSettings()
     // add automation test UI (if not already present)
     try { setupAutomationTest() } catch (e) { /* ignore */ }
