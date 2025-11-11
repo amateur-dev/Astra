@@ -90,6 +90,12 @@ Files of interest
 - `src/preload.js` — IPC bridge for renderer
 - `src/renderer/renderer.js` — UI, MediaRecorder, and paste wiring
 
+Model downloads
+
+- The app can download prebuilt ggml models into `~/whisper.cpp/models/` when requested from Settings.
+- Downloaded models are intentionally ignored by git; the repo `.gitignore` contains `models/` and `whisper.cpp/models/`.
+- If you prefer to manage models in a custom location, set the Model path in Settings after downloading or supply a full path in your `TRANSCRIBE_CMD`.
+
 Packaging
 
 Use `npm run dist` (configured to call `electron-builder --mac`) to produce a DMG. Packaging requires macOS and Xcode toolchain.
