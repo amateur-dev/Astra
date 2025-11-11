@@ -49,36 +49,16 @@ if (!fetch) {
 let mainWindow = null
 let tray = null
 let isRecording = false
+// Import pure helpers from lib so they can be unit-tested independently
+const { cleanTranscript, extractTimestampFromText } = require('./lib/transcript-utils')
+const { checkWhisperAvailability } = require('./lib/whisper-utils')
 
-// Check whether a 'whisper' binary is available on PATH. Returns {ok, path}
-async function checkWhisperAvailability () {
-  try {
-    // First, try to find a configured transcription command that explicitly
-    // mentions whisper in settings/env. If so, prefer that resolution path.
-    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || ''
-    if (tpl && /whisper/i.test(tpl)) {
-      // If the configured template references an explicit path, try resolving the binary token
-      const binMatch = tpl.match(/^\s*(?:"|')?(.*?)(?:"|')?(?:\s|$)/)
-      if (binMatch && binMatch[1]) {
-        const explicit = binMatch[1]
-        if (fs.existsSync(explicit)) return { ok: true, path: explicit, source: 'configured' }
-      }
-    }
+// Enforce Whisper usage when available
+const ENFORCE_WHISPER = true
+let whisperStatus = null
+let forcedTranscribeCmd = null
 
-    // Fallback: try `which whisper`
-    const found = await new Promise((resolve) => {
-      exec('which whisper', (err, stdout) => {
-        if (err) return resolve(null)
-        const p = stdout && stdout.toString().trim()
-        resolve(p || null)
-      })
-    })
-    if (found) return { ok: true, path: found, source: 'which' }
-    return { ok: false, error: 'whisper binary not found on PATH' }
-  } catch (err) {
-    return { ok: false, error: String(err) }
-  }
-}
+// Note: whisper availability is determined by `src/lib/whisper-utils.js`
 
 function createWindow () {
   mainWindow = new BrowserWindow({
@@ -132,15 +112,25 @@ app.whenReady().then(() => {
   })
   if (!ret) console.log('Global shortcut registration failed')
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
-  // Check for Whisper availability at startup and notify renderer.
+  if (app && typeof app.on === 'function') {
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  } else {
+    console.warn('app.on is not available in this runtime; skipping activate handler')
+  }
+  // Check for Whisper availability at startup, enforce if requested, and notify renderer.
   (async () => {
     try {
       const ws = await checkWhisperAvailability()
+      whisperStatus = ws
+      if (ws && ws.ok) {
+        // Prefer the detected whisper binary as the forced transcribe command
+        forcedTranscribeCmd = `${ws.path} {wav}`
+      }
       try { if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('whisper-status', ws) } catch (e) { /* ignore */ }
     } catch (e) {
+      whisperStatus = { ok: false, error: String(e) }
       try { if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('whisper-status', { ok: false, error: String(e) }) } catch (ee) {}
     }
   })()
@@ -447,6 +437,10 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
 ipcMain.handle('transcribe', async (event, webmPath) => {
   try {
     if (!webmPath || typeof webmPath !== 'string') return { ok: false, error: 'Invalid path' }
+    // Enforce Whisper availability if configured
+    if (ENFORCE_WHISPER && (!whisperStatus || !whisperStatus.ok)) {
+      return { ok: false, error: 'Whisper is required but not available on this system.' }
+    }
     // ensure ffmpeg exists
     const ffmpegCmd = 'ffmpeg'
     // create wav path
@@ -480,7 +474,13 @@ async function transcribeWebm (webmPath) {
       })
     })
 
-    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || null
+    // If Whisper is enforced, require it to be available
+    if (ENFORCE_WHISPER && (!whisperStatus || !whisperStatus.ok)) {
+      return { ok: false, error: 'Whisper is required but not available. Please install or configure Whisper.' }
+    }
+
+    // Prefer a forced Whisper cmd if we detected one; otherwise use configured template
+    const tpl = forcedTranscribeCmd || store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || null
     if (!tpl) {
       return { ok: false, error: 'No transcription command configured. Set TRANSCRIBE_CMD env variable or save settings in app.' }
     }
@@ -612,70 +612,9 @@ async function polishWithOllama (text) {
   }
 }
 
-// helper: clean transcript text by removing common timestamp lines, any
-// trailing 'I made the following changes' caveat and list items, and
-// collapse everything into a single paragraph. This is a best-effort
-// normalizer to make transcripts more user-friendly.
-function cleanTranscript (text) {
-  try {
-    if (!text || typeof text !== 'string') return text
-    // Split into lines and drop lines that look like timestamps or are empty
-    const rawLines = text.split(/\r?\n/)
-    const lines = []
-    for (let i = 0; i < rawLines.length; i++) {
-      let line = rawLines[i].trim()
-      if (!line) continue
-      // If the line contains a timestamp pattern like 00:00:00 or 00:00:00.000 or an arrow -->, drop it
-      if (/\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?/.test(line)) continue
-      if (/-->|→/.test(line)) continue
-      // Remove common bullet markers
-      line = line.replace(/^\s*[-*•]\s+/, '')
-      // If this line starts the caveat about changes, stop processing further lines
-      if (/^I made the following changes/i.test(line) || /^I made some changes/i.test(line)) break
-      lines.push(line)
-    }
-
-  if (lines.length === 0) return ''
-  // Join into a single paragraph and normalize whitespace
-  let paragraph = lines.join(' ').replace(/\s+/g, ' ').trim()
-  // Strip common leading labels that models sometimes add, e.g. "Here is the cleaned transcript:"
-  paragraph = paragraph.replace(/^(?:here\s+is(?:\s+the)?|here'?s(?:\s+the)?|cleaned\s+transcript)[:\-\s]*/i, '')
-  return paragraph
-  } catch (err) {
-    console.error('cleanTranscript error', err)
-    return text
-  }
-}
-
-// Helper: attempt to extract a timestamp-like substring from the raw transcript.
-// Returns the first plausible match (time like "7:30 AM", numeric times like "7:30",
-// ordinals like "11th", or month/day occurrences) or null if none found.
-function extractTimestampFromText (text) {
-  if (!text || typeof text !== 'string') return null
-  // Check for common time patterns first
-  const timeRegexes = [
-    /\b\d{1,2}[:.]\d{2}\s*(?:AM|PM|am|pm)?\b/, // 7:30, 07:30 AM
-    /\b\d{1,2}\s*(?:AM|PM|am|pm)\b/, // 7 AM
-  ]
-  for (const re of timeRegexes) {
-    const m = text.match(re)
-    if (m) return m[0]
-  }
-
-  // Ordinal dates like 11th, 2nd
-  const ordinal = text.match(/\b\d{1,2}(?:st|nd|rd|th)\b/)
-  if (ordinal) return ordinal[0]
-
-  // Month + day like "November 11" or "Nov 11th"
-  const month = text.match(/\b(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+\d{1,2}(?:st|nd|rd|th)?\b/i)
-  if (month) return month[0]
-
-  // Fallback: any 4+ digit year or standalone 4-digit number (rare)
-  const year = text.match(/\b\d{4}\b/)
-  if (year) return year[0]
-
-  return null
-}
+// NOTE: `cleanTranscript` and `extractTimestampFromText` are provided by
+// `src/lib/transcript-utils.js` to allow unit testing without loading the
+// entire Electron main process.
 
 // helper: locate ffmpeg binary. Checks user-configured path, system paths, and bundled resources
 async function findFfmpeg () {
