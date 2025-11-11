@@ -347,6 +347,11 @@ if (window.electronAPI && window.electronAPI.onWhisperStatus) {
       } else {
         if (statusEl) statusEl.textContent = 'Ready (Whisper connected)'
         if (recBtn) recBtn.disabled = false
+        // Auto-fill Whisper binary path in Settings if empty
+        try {
+          const wb = document.getElementById('whisperBin')
+          if (wb && (!wb.value || wb.value.trim().length === 0) && st.path) wb.value = st.path
+        } catch (e) { /* ignore UI autofill errors */ }
       }
     } catch (e) { console.error('onWhisperStatus handler', e) }
   })
