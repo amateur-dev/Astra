@@ -10,9 +10,15 @@ function withExecStub (stubImpl, fn) {
   const orig = cp.exec
   cp.exec = stubImpl
   try {
-    return fn()
+    const res = fn()
+    // If fn returns a Promise, await it so the stub remains in place during async work
+    if (res && typeof res.then === 'function') {
+      return res.finally(() => { cp.exec = orig })
+    }
+    return res
   } finally {
-    cp.exec = orig
+    // If fn returned a Promise, the restore happens in the finally above. Otherwise, restore here.
+    try { if (! (fn() && typeof fn().then === 'function')) cp.exec = orig } catch (e) { cp.exec = orig }
   }
 }
 
