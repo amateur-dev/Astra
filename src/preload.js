@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // paste integration
   pasteToFront: (text) => ipcRenderer.invoke('paste-into-front', text)
   ,
+  getFrontmostApp: () => ipcRenderer.invoke('get-frontmost-app')
+  ,
+  // write text to system clipboard via main process (fallback when navigator.clipboard is unavailable)
+  writeToClipboard: (text) => ipcRenderer.invoke('write-to-clipboard', text)
+  ,
   // send live audio chunk (Uint8Array) to main for relaying or saving
   sendAudioChunk: (uint8Array) => ipcRenderer.invoke('send-audio-chunk', uint8Array)
   ,
@@ -25,6 +30,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onFinalizeResult: (cb) => ipcRenderer.on('finalize-result', (event, res) => cb(res)),
   // clear buffered live audio for a sender (delete temp files and reset state)
   clearLiveBuffer: (senderId) => ipcRenderer.invoke('clear-live-buffer', senderId),
+  // listen for Ollama/LLM availability status from main
+  onOllamaStatus: (cb) => ipcRenderer.on('ollama-status', (event, status) => cb(status)),
   // open system microphone privacy settings
   openMicrophoneSettings: () => ipcRenderer.invoke('open-microphone-settings')
   ,
