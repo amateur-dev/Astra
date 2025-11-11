@@ -1,0 +1,220 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Voice Hotkey UI Preview</title>
+  <link rel="stylesheet" href="./tokens.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="header-row">
+      <h2>Voice Hotkey</h2>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <div class="status-pill">Ready</div>
+        <button class="btn btn-ghost" id="openSettings">Settings</button>
+      </div>
+    </div>
+
+    <div class="component-row">
+      <div class="card record-card-wrapper">
+        <h3>Record</h3>
+        <div class="record-card">
+          <div class="record-button" id="recordBtn">🎤</div>
+        </div>
+
+        <div class="controls" style="justify-content:center;">
+          <button class="btn btn-primary" id="startRecording">Start Recording</button>
+          <button class="btn btn-ghost" id="settingsBtn">Settings</button>
+        </div>
+
+        <div style="text-align:center; margin-top:12px;" class="small-muted">Hotkey: ⌘ + ⇧ + R</div>
+      </div>
+
+      <div class="card transcript-card-wrapper transcript-card">
+        <h3>Transcript</h3>
+        <textarea class="transcript-area" placeholder="Transcript will appear here..." id="transcript"></textarea>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+          <div style="display:flex; gap:8px; align-items:center;"><label style="display:flex; gap:8px; align-items:center;"><input type="checkbox" id="polish"/> Polish with Ollama</label></div>
+          <div style="display:flex; gap:8px;"><button class="btn" id="copyBtn">Copy</button><button class="btn btn-primary" id="pasteBtn">Paste</button></div>
+        </div>
+
+        <div style="margin-top: 10px;" class="small-muted">Whisper: /usr/local/bin/whisper<br/>Model: ~/.whisper/models</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div class="card" style="padding:12px 18px; display:flex; gap:12px; align-items:center;">
+        <div style="width:12px; height:12px; border-radius:50%; background:var(--color-success)"></div>
+        <div>Done! How does this look?</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const recordBtn = document.getElementById('recordBtn');
+    const startBtn = document.getElementById('startRecording');
+    const transcript = document.getElementById('transcript');
+    const openSettings = document.getElementById('openSettings');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const pasteBtn = document.getElementById('pasteBtn');
+
+    function startMockRecording(){
+      recordBtn.classList.add('recording');
+      recordBtn.textContent = '⏺️';
+      transcript.value = '';
+      startBtn.textContent = 'Stop Recording';
+      // mock incremental partials
+      let partials = ["This is a mocked", "This is a mocked transcription", "This is a mocked transcription sample."];
+      partials.forEach((p,i)=> setTimeout(()=>{ transcript.value = p; }, 400 + i*400));
+      // final polished result
+      setTimeout(()=>{ transcript.value = 'This is a mocked transcription sample. Finalized and polished.'; stopMockRecording(); }, 1800);
+    }
+
+    function stopMockRecording(){
+      recordBtn.classList.remove('recording');
+      recordBtn.textContent = '🎤';
+      startBtn.textContent = 'Start Recording';
+    }
+
+    startBtn.addEventListener('click', async ()=>{
+      if(recordBtn.classList.contains('recording')){
+        // stop: if running inside Electron, ask main to finalize and return polished text
+        if(hasElectron && window.electronAPI.finalizeLive){
+          try{
+            const res = await window.electronAPI.finalizeLive();
+            if(res && res.text) transcript.value = res.text;
+            else if(typeof res === 'string') transcript.value = res;
+          }catch(e){ console.warn('finalizeLive failed', e); }
+        }
+        stopMockRecording();
+      }else{
+        // start local mock and also notify main if possible (e.g., start buffering)
+        if(hasElectron && window.electronAPI.onRecordToggle){
+          try{ window.electronAPI.onRecordToggle && window.electronAPI.onRecordToggle(() => {}); }catch(e){}
+        }
+        startMockRecording();
+      }
+    });
+
+    // Settings modal (lightweight)
+    async function openSettingsModal(){
+      if(document.getElementById('uiModal')) return; // already open
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.id = 'uiModal';
+      overlay.innerHTML = `
+        <div class="modal card">
+          <h3>Settings</h3>
+          <div class="form-row"><label style="width:140px;">Whisper binary</label><input id="whisperBin" class="input" value="/usr/local/bin/whisper"/></div>
+          <div class="form-row"><label style="width:140px;">Model dir</label><input id="modelDir" class="input" value="~/.whisper/models"/></div>
+          <div class="form-row"><label style="width:140px;">Ollama URL</label><input id="ollamaUrl" class="input" value="http://127.0.0.1:11434"/></div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;"><div class="muted">Download models:</div><div style="display:flex; gap:8px;"><button class="btn" id="dlTiny">Download tiny</button><button class="btn" id="dlSmall">Download small</button></div></div>
+          <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;"><button class="btn btn-ghost" id="closeModal">Cancel</button><button class="btn btn-primary" id="saveModal">Save</button></div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      // Populate from real settings when available
+      if(hasElectron && window.electronAPI.getSettings){
+        try{
+          const s = await window.electronAPI.getSettings();
+          if(s){
+            const wb = document.getElementById('whisperBin');
+            const md = document.getElementById('modelDir');
+            const ol = document.getElementById('ollamaUrl');
+            if(wb && s.whisperBin) wb.value = s.whisperBin;
+            if(md && s.modelDir) md.value = s.modelDir;
+            if(ol && s.ollamaUrl) ol.value = s.ollamaUrl;
+          }
+        }catch(e){ console.warn('getSettings failed', e); }
+      }
+
+      document.getElementById('closeModal').addEventListener('click', ()=> overlay.remove());
+
+      document.getElementById('saveModal').addEventListener('click', async ()=> {
+        // persist settings via IPC when available
+        const newS = { whisperBin: document.getElementById('whisperBin').value, modelDir: document.getElementById('modelDir').value, ollamaUrl: document.getElementById('ollamaUrl').value };
+        if(hasElectron && window.electronAPI.saveSettings){
+          try{ await window.electronAPI.saveSettings(newS); }
+          catch(e){ console.warn('saveSettings failed', e); }
+        }
+        overlay.remove();
+      });
+
+      // Download handlers
+      document.getElementById('dlTiny').addEventListener('click', async ()=>{
+        if(hasElectron && window.electronAPI.downloadModel){
+          try{ await window.electronAPI.downloadModel('tiny'); alert('Started tiny model download (check console for progress)'); }
+          catch(e){ alert('Download request failed'); }
+        }else{ alert('Download only available in app.'); }
+      });
+      document.getElementById('dlSmall').addEventListener('click', ()=>{ alert('Small download flow not wired in preview.'); });
+    }
+
+    openSettings.addEventListener('click', openSettingsModal);
+    settingsBtn.addEventListener('click', openSettingsModal);
+
+    // Integrate with Electron preload bridge when available
+    const hasElectron = typeof window !== 'undefined' && window.electronAPI;
+    if(hasElectron){
+      // Populate Whisper status if available
+      try{
+        window.electronAPI.getWhisperStatus().then(status => {
+          if(status && status.ok){
+            document.querySelector('.status-pill').textContent = 'Ready (Whisper)';
+          } else if(status && status.ok === false){
+            document.querySelector('.status-pill').textContent = 'Whisper unavailable';
+          }
+        }).catch(()=>{});
+
+        window.electronAPI.onWhisperStatus((s)=>{
+          document.querySelector('.status-pill').textContent = s && s.ok ? 'Ready (Whisper)' : 'Whisper unavailable';
+        });
+      }catch(e){ console.warn('whisper-status not available', e); }
+
+      // Listen for finalize results that main may emit
+      try{
+        window.electronAPI.onFinalizeResult((res)=>{
+          if(res && res.text){
+            transcript.value = res.text;
+          }
+        });
+      }catch(e){ console.warn('onFinalizeResult not available', e); }
+
+      // Download progress hook
+      try{
+        window.electronAPI.onDownloadProgress((prog)=>{
+          // simple console/log for preview; we could wire a small progress UI
+          console.log('download-progress', prog);
+        });
+      }catch(e){ console.warn('onDownloadProgress not available', e); }
+    }
+
+    copyBtn.addEventListener('click', async ()=>{
+      if(hasElectron && window.electronAPI.writeToClipboard){
+        try{ await window.electronAPI.writeToClipboard(transcript.value); }
+        catch(e){ console.warn('writeToClipboard failed', e); }
+      }else if(navigator.clipboard && navigator.clipboard.writeText){
+        await navigator.clipboard.writeText(transcript.value);
+      }else{
+        alert('Clipboard not available in preview');
+      }
+      copyBtn.textContent = 'Copied!';
+      setTimeout(()=> copyBtn.textContent = 'Copy', 1400);
+    });
+
+    pasteBtn.addEventListener('click', async ()=>{
+      if(hasElectron && window.electronAPI.pasteToFront){
+        try{
+          await window.electronAPI.pasteToFront(transcript.value);
+        }catch(e){ console.warn('pasteToFront failed', e); alert('Paste failed'); }
+      }else{
+        alert('Paste action simulated in preview - actual app will paste into frontmost app.');
+      }
+    });
+  </script>
+</body>
+</html>

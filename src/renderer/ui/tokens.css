@@ -1,0 +1,169 @@
+/* Design tokens for Voice Hotkey UI preview
+   - Colors, typography, spacing, and component tokens
+   - Light/dark theme vars are declared here for easy use in the preview
+*/
+:root{
+  /* Colors */
+  --color-bg: #f5f6f7;
+  --color-card: #ffffff;
+  --color-primary: #0A84FF;
+  --color-danger: #FF3B30;
+  --color-success: #28A745;
+  --color-muted: #6b7280;
+  --color-text: #0f1720;
+  --color-surface-1: #ffffff;
+  --color-surface-2: #f8fafc;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  --text-lg: 20px;
+  --text-md: 16px;
+  --text-sm: 13px;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 40px;
+
+  /* Radii */
+  --radius-card: 12px;
+  --radius-pill: 999px;
+
+  /* Shadows */
+  --shadow-soft: 0 6px 18px rgba(15, 23, 32, 0.06);
+
+  /* Sizes */
+  --record-size: 92px;
+}
+
+body{
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
+  margin: 0;
+  padding: var(--space-lg);
+}
+
+.container{
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.card{
+  background: var(--color-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+  padding: var(--space-lg);
+}
+
+.header-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom: var(--space-md);
+}
+
+.record-card{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  height: 260px;
+}
+
+.record-button{
+  width: var(--record-size);
+  height: var(--record-size);
+  background: #ff4b3a;
+  border-radius: 50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color: white;
+  font-size: 28px;
+  box-shadow: 0 8px 20px rgba(255, 75, 58, 0.12);
+}
+
+.controls{
+  margin-top: var(--space-md);
+  display:flex;
+  gap: var(--space-sm);
+}
+
+.btn{
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-primary{
+  background: var(--color-primary);
+  color: white;
+}
+
+.btn-ghost{
+  background: transparent;
+  border: 1px solid rgba(15,23,32,0.06);
+}
+
+.transcript-card{
+  min-height: 220px;
+}
+
+.transcript-area{
+  width:100%;
+  height:160px;
+  border-radius:8px;
+  border:1px solid rgba(15,23,32,0.06);
+  padding:12px;
+  background:#fafafa;
+  resize: vertical;
+}
+
+.status-pill{
+  background: #e6f4ea;
+  color: #166534;
+  padding:6px 10px;
+  border-radius: 999px;
+  font-weight:600;
+}
+
+.small-muted{ color: var(--color-muted); font-size:13px; }
+
+.footer{
+  margin-top: var(--space-lg);
+  display:flex;
+  justify-content:center;
+}
+
+/* Component tokens */
+.component-row{ display:flex; gap:24px; }
+
+.record-card-wrapper{ width:100%; }
+.transcript-card-wrapper{ width:100%; }
+
+/* Settings modal */
+.modal-overlay{
+  position:fixed;
+  inset:0;
+  background: rgba(10,11,12,0.32);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:2000;
+}
+.modal{ background:var(--color-surface-1); border-radius:12px; padding:20px; width:720px; box-shadow:0 12px 40px rgba(12,14,20,0.12); }
+.modal h3{ margin-top:0; }
+.form-row{ display:flex; gap:12px; align-items:center; margin-bottom:12px; }
+.input{ padding:8px 10px; border-radius:8px; border:1px solid rgba(15,23,32,0.06); width:100%; }
+.muted{ color:var(--color-muted); font-size:13px; }
+
+/* small utility */
+.right{ margin-left:auto; }
+
+/* Recording visual state */
+.record-button.recording{ box-shadow: 0 12px 28px rgba(255,75,58,0.16); transform: scale(0.98); }
+

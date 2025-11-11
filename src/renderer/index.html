@@ -3,86 +3,129 @@
   <head>
     <meta charset="utf-8" />
     <title>Voice Hotkey (Electron)</title>
+    <link rel="stylesheet" href="./ui/tokens.css" />
+    <style>
+      body { padding: 20px; background: #f6f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
+  .layout-grid{ display:grid; grid-template-columns: 1fr; gap:20px; align-items:start; }
+      .top-row{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px }
+      .status-pill { padding:6px 12px; border-radius:12px; background:#e6f4ea; color:#0b6b2e }
+      .card{ background:#fff; border-radius:10px; padding:18px; box-shadow:0 6px 18px rgba(0,0,0,0.04) }
+      .btn{ padding:8px 12px; border-radius:8px; border:1px solid #e6e6e6; background:#fff; cursor:pointer }
+      .btn-primary{ background:#0b79ff; color:#fff; border-color:transparent }
+    </style>
   </head>
   <body>
-    <h2>Voice Hotkey — MVP</h2>
-    <div id="status">Idle</div>
-    <div style="margin-top:6px">
-      Microphone permission: <span id="micStatus">unknown</span>
-      <button id="openMicSettingsBtn" style="margin-left:8px">Open Microphone Settings</button>
-    </div>
-  <button id="recordBtn">Start Recording</button>
-  <button id="transcribeBtn" disabled>Transcribe</button>
-  <button id="clearBtn" style="margin-left:8px">Clear & Re-record</button>
-  <div id="progress" style="margin-top:8px; display:none">Status: <span id="progressText">Idle</span></div>
-  <pre id="transcript" style="white-space:pre-wrap; background:#f6f6f6; padding:8px; border-radius:4px; display:none"></pre>
-    <!-- Live capture runs in the background and is not shown in the UI when using hotkey flow -->
-    <div style="margin-top:8px">
-      <button id="pasteBtn" disabled>Paste into Front App</button>
-      <button id="copyBtn" style="margin-left:8px" disabled>Copy</button>
-    </div>
-    <hr />
-    <h3>Settings</h3>
-    <div>
-      <label>Whisper binary path:<br/>
-        <input id="whisperBin" type="text" style="width:100%" placeholder="/path/to/whisper-cli" />
-      </label>
-    </div>
-    <div>
-      <label>FFmpeg path (optional):<br/>
-        <input id="ffmpegPath" type="text" style="width:100%" placeholder="/opt/homebrew/bin/ffmpeg or leave blank to use bundled" />
-      </label>
-    </div>
-    <div>
-      <label>Model path (-m):<br/>
-        <input id="modelPath" type="text" style="width:100%" placeholder="/Users/you/models/ggml-tiny.en.bin" />
-      </label>
-    </div>
-    <div style="margin-top:8px">
-      <label>Download prebuilt ggml models:<br/>
-        <button id="downloadTinyBtn">Download tiny (smallest)</button>
-        <button id="downloadSmallBtn">Download small</button>
-        <button id="downloadBaseBtn">Download base</button>
-      </label>
-      <div id="downloadStatus" style="margin-top:6px; white-space:nowrap"></div>
-      <div id="downloadProgress" style="width:100%; height:8px; background:#eee; border-radius:4px; display:none; margin-top:6px"><div id="downloadProgressBar" style="height:100%; width:0%; background:linear-gradient(90deg,#4caf50,#8bc34a); border-radius:4px"></div></div>
-    </div>
-    <!-- Confirmation modal for large downloads -->
-    <div id="downloadConfirmModal" style="display:none; position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.45); align-items:center; justify-content:center">
-      <div style="background:#fff; padding:16px; width:420px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.25); margin:40px auto;">
-        <h4 id="downloadConfirmTitle">Confirm download</h4>
-        <p id="downloadConfirmBody">Confirm download?</p>
-        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px">
-          <button id="downloadCancelBtn">Cancel</button>
-          <button id="downloadConfirmBtn">Download</button>
-        </div>
+    <div class="top-row">
+      <h2 style="margin:0">Voice Hotkey</h2>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <div id="status" class="status-pill">Idle</div>
+        <button id="settingsBtn" class="btn">Settings</button>
       </div>
     </div>
-    <div style="margin-top:8px">
-      <label><input id="autoTranscribe" type="checkbox" /> Auto-transcribe after saving recording</label>
+
+    <div class="layout-grid">
+      <div class="card" id="leftCard">
+        <h3 style="margin-top:0">Record</h3>
+  <!-- Microphone permission moved into Settings modal to keep main UI minimal. -->
+        <div style="display:flex; justify-content:center; align-items:center; height:220px;">
+          <div style="width:84px; height:84px; border-radius:50%; background:#ff5746; display:flex; align-items:center; justify-content:center; box-shadow:0 8px 28px rgba(0,0,0,0.08)">
+            <span style="font-size:28px">🎤</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:12px; justify-content:center; margin-top:12px">
+          <button id="recordBtn" class="btn btn-primary">Start Recording</button>
+          <button id="clearBtn" class="btn" disabled>Clear & Re-Record</button>
+        </div>
+        <div style="text-align:center; margin-top:8px; color:#888; font-size:13px">Hotkey: ⌘ + ⇧ + R</div>
+      </div>
+
+  <!-- Transcript will be injected into the Record card when available; no right-column shown by default -->
     </div>
-    <div style="margin-top:8px">
-      <label><input id="ollamaEnabled" type="checkbox" /> Polish transcripts with Ollama (experimental)</label>
+
+    <!-- Settings modal (hidden by default). Inputs keep their IDs so renderer.js bindings continue to work. -->
+    <div id="settingsModal" style="display:none; position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.45); align-items:center; justify-content:center;">
+      <div style="background:#fff; padding:18px; width:560px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.25); margin:40px auto; max-height:80vh; overflow:auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="margin:0">Settings</h3>
+          <button id="closeSettingsBtn" class="btn">Close</button>
+        </div>
+
+        <div style="margin-top:8px">
+          <label>Whisper binary path:<br/>
+            <input id="whisperBin" type="text" style="width:100%" placeholder="/path/to/whisper-cli" />
+          </label>
+        </div>
+        <div style="margin-top:8px">
+          <label>FFmpeg path (optional):<br/>
+            <input id="ffmpegPath" type="text" style="width:100%" placeholder="/opt/homebrew/bin/ffmpeg or leave blank to use bundled" />
+          </label>
+        </div>
+        <div style="margin-top:8px">
+          <label>Model path (-m):<br/>
+            <input id="modelPath" type="text" style="width:100%" placeholder="/Users/you/models/ggml-tiny.en.bin" />
+          </label>
+        </div>
+
+        <div style="margin-top:12px">
+          <label>Download prebuilt ggml models:</label>
+          <div style="display:flex; gap:8px; margin-top:6px;">
+            <button id="downloadTinyBtn" class="btn">Download tiny (smallest)</button>
+            <button id="downloadSmallBtn" class="btn">Download small</button>
+            <button id="downloadBaseBtn" class="btn">Download base</button>
+          </div>
+          <div id="downloadStatus" style="margin-top:6px; white-space:nowrap"></div>
+          <div id="downloadProgress" style="width:100%; height:8px; background:#eee; border-radius:4px; display:none; margin-top:6px"><div id="downloadProgressBar" style="height:100%; width:0%; background:linear-gradient(90deg,#4caf50,#8bc34a); border-radius:4px"></div></div>
+        </div>
+
+        <div style="margin-top:12px">
+          <label><input id="autoTranscribe" type="checkbox" /> Auto-transcribe after saving recording</label>
+        </div>
+        <div style="margin-top:8px">
+          <label><input id="ollamaEnabled" type="checkbox" /> Polish transcripts with Ollama (experimental)</label>
+        </div>
+        <div style="margin-top:8px">
+          <label>Ollama URL:<br/>
+            <input id="ollamaUrl" type="text" style="width:100%" placeholder="http://localhost:11434" />
+          </label>
+        </div>
+        <div style="margin-top:8px">
+          <label>Ollama Model:<br/>
+            <input id="ollamaModel" type="text" style="width:100%" placeholder="llama3.2" />
+          </label>
+        </div>
+        <div style="margin-top:8px">
+          <label><input id="autoPaste" type="checkbox" /> Auto-paste into front app after transcribe</label>
+        </div>
+
+        <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
+          <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
+          <button id="testSettingsBtn" class="btn">Test Settings</button>
+          <button id="recheckWhisperBtn" class="btn">Re-check Whisper</button>
+        </div>
+        <div style="margin-top:8px">
+          <label>Microphone permission:<br/>
+            <span id="micStatus">unknown</span>
+            <button id="openMicSettingsBtn" class="btn" style="margin-left:8px">Open Microphone Settings</button>
+          </label>
+        </div>
+        <div id="settingsResult" style="margin-top:8px; white-space:pre-wrap"></div>
+      </div>
     </div>
-    <div>
-      <label>Ollama URL:<br/>
-        <input id="ollamaUrl" type="text" style="width:100%" placeholder="http://localhost:11434" />
-      </label>
-    </div>
-    <div>
-      <label>Ollama Model:<br/>
-        <input id="ollamaModel" type="text" style="width:100%" placeholder="llama3.2" />
-      </label>
-    </div>
-    <div style="margin-top:8px">
-      <label><input id="autoPaste" type="checkbox" /> Auto-paste into front app after transcribe</label>
-    </div>
-    <div style="margin-top:8px">
-      <button id="saveSettingsBtn">Save Settings</button>
-      <button id="testSettingsBtn">Test Settings</button>
-      <button id="recheckWhisperBtn" style="margin-left:8px">Re-check Whisper</button>
-      <div id="settingsResult" style="margin-top:8px; white-space:pre-wrap"></div>
-    </div>
+
+    <script>
+      // Minimal open/close wiring for the Settings modal. Renderer code still binds to the inputs by ID.
+      (function(){
+        const settingsBtn = document.getElementById('settingsBtn');
+        const settingsModal = document.getElementById('settingsModal');
+        const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+        function openSettings(){ settingsModal.style.display='flex'; }
+        function closeSettings(){ settingsModal.style.display='none'; }
+        if(settingsBtn) settingsBtn.addEventListener('click', openSettings);
+        if(closeSettingsBtn) closeSettingsBtn.addEventListener('click', closeSettings);
+        // Close modal on ESC
+        document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeSettings(); });
+      })();
+    </script>
     <script src="renderer.js"></script>
   </body>
 </html>
