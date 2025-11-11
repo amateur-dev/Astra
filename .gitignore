@@ -1,12 +1,4 @@
-# Ignore model binaries and local model folders
-models/
-whisper.cpp/models/
-**/models/*.bin
-
-# OS / editor
-.DS_Store
-node_modules/
-dist/node_modules
+node_modules
 dist
 out
 build
