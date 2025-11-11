@@ -307,6 +307,20 @@ ipcMain.handle('save-settings', (event, settings) => {
     if (typeof settings.ollama_model === 'string') store.set('ollama_model', settings.ollama_model)
     if (typeof settings.ollama_enabled === 'boolean') store.set('ollama_enabled', settings.ollama_enabled)
     if (typeof settings.auto_paste === 'boolean') store.set('auto_paste', settings.auto_paste)
+    // After saving settings, re-check Whisper availability so the UI can update immediately
+    (async () => {
+      try {
+        const ws = await checkWhisperAvailability(store.get('transcribe_cmd'))
+        whisperStatus = ws
+        if (ws && ws.ok) {
+          forcedTranscribeCmd = `${ws.path} {wav}`
+        }
+        try { if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('whisper-status', ws) } catch (e) {}
+      } catch (e) {
+        whisperStatus = { ok: false, error: String(e) }
+        try { if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('whisper-status', whisperStatus) } catch (ee) {}
+      }
+    })()
     return { ok: true }
   } catch (err) {
     return { ok: false, error: String(err) }
