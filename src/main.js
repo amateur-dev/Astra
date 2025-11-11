@@ -4,7 +4,38 @@ const fs = require('fs')
 const os = require('os')
 const { exec } = require('child_process')
 const Store = require('electron-store')
-const store = new Store()
+let store = new Store()
+
+// Defensive fallback: some packaged environments may not expose electron-store
+// correctly. If `store.set` is missing, replace `store` with a simple file-backed
+// shim that persists settings to ~/.voicehotkey-settings.json to avoid runtime
+// TypeErrors and provide sensible defaults.
+try {
+  if (!store || typeof store.set !== 'function') {
+    const fallbackPath = path.join(os.homedir() || process.env.HOME || '.', '.voicehotkey-settings.json')
+    let _cache = {}
+    try {
+      if (fs.existsSync(fallbackPath)) {
+        _cache = JSON.parse(fs.readFileSync(fallbackPath, 'utf8') || '{}')
+      }
+    } catch (e) { _cache = {} }
+    const shim = {
+      get: (k) => (_cache && Object.prototype.hasOwnProperty.call(_cache, k) ? _cache[k] : undefined),
+      set: (k, v) => {
+        try {
+          _cache[k] = v
+          fs.writeFileSync(fallbackPath, JSON.stringify(_cache, null, 2), 'utf8')
+        } catch (e) {
+          console.error('fallback store write failed', e)
+        }
+      }
+    }
+    store = shim
+    console.warn('electron-store unavailable; using fallback file store at', fallbackPath)
+  }
+} catch (e) {
+  console.warn('store initialization check failed', e)
+}
 
 // Resolve a usable `fetch` in the main process.
 // Prefer a built-in/global fetch (available in newer Node/Electron), then try
