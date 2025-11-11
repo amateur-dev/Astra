@@ -5,6 +5,7 @@
   "main": "src/main.js",
   "scripts": {
   "start": "electron .",
+  "test": "node --test",
   "build": "electron-builder --mac",
   "dist": "electron-builder --mac --x64",
   "dist:arm64": "electron-builder --mac --arm64",

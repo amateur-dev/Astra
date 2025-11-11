@@ -1,10 +1,68 @@
 const status = document.getElementById('status')
 const btn = document.getElementById('recordBtn')
+// Initially disable recording until Ollama availability is confirmed.
+if (btn) btn.disabled = true
+if (status) status.textContent = 'Checking Ollama availability...'
+// Safety: if main never reports Ollama availability (mismatch between branches
+// or startup failure), don't block the UI forever. After a short timeout
+// enable the record button with a warning so the user can still test the app.
+let _ollamaStatusTimer = setTimeout(() => {
+  try {
+    if (btn) btn.disabled = false
+    if (status) status.textContent = 'Ready (Ollama status unknown — continuing without LLM check)'
+  } catch (e) {}
+}, 3500)
 let recording = false
 let mediaRecorder = null
 let chunks = []
 let currentStream = null
+let liveMediaRecorder = null
+// Live UI/logging removed for hotkey mode. Live capture will run in background when recording is started via hotkey.
+// PCM capture variables
+let audioCtx = null
+let sourceNode = null
+let processorNode = null
+let pcmBuffer = []
+// Increase PCM chunk size to ~10 seconds per user request for larger background chunks
+const PCM_TARGET_SECONDS = 10.0 // build ~10s WAVs
 
+// mock STT removed for hotkey/background flow
+
+// Encode Float32Array PCM to 16-bit WAV Uint8Array
+function encodeWAV (samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2)
+  const view = new DataView(buffer)
+
+  function writeString (view, offset, string) {
+    for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i))
+  }
+
+  /* RIFF identifier */ writeString(view, 0, 'RIFF')
+  /* file length */ view.setUint32(4, 36 + samples.length * 2, true)
+  /* RIFF type */ writeString(view, 8, 'WAVE')
+  /* format chunk identifier */ writeString(view, 12, 'fmt ')
+  /* format chunk length */ view.setUint32(16, 16, true)
+  /* sample format (raw) */ view.setUint16(20, 1, true)
+  /* channel count */ view.setUint16(22, 1, true)
+  /* sample rate */ view.setUint32(24, sampleRate, true)
+  /* byte rate (sampleRate * blockAlign) */ view.setUint32(28, sampleRate * 2, true)
+  /* block align (channel count * bytes per sample) */ view.setUint16(32, 2, true)
+  /* bits per sample */ view.setUint16(34, 16, true)
+  /* data chunk identifier */ writeString(view, 36, 'data')
+  /* data chunk length */ view.setUint32(40, samples.length * 2, true)
+
+  // write PCM samples
+  let offset = 44
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    let s = Math.max(-1, Math.min(1, samples[i]))
+    s = s < 0 ? s * 0x8000 : s * 0x7FFF
+    view.setInt16(offset, s, true)
+  }
+  return new Uint8Array(buffer)
+}
+
+
+// Keep existing record button behavior for manual testing, but hotkey toggles will drive recording in normal use.
 btn.addEventListener('click', () => toggleRecording())
 
 async function startRecording () {
@@ -43,25 +101,25 @@ async function startRecording () {
             transBtn.disabled = false
             transBtn.dataset.path = result.path
           }
-          // if main auto-transcribed, show transcript immediately
+          // If main already auto-transcribed, show transcript immediately.
+          // Otherwise, run a final transcribe step now so stopping via hotkey auto-finalizes.
+          const transcriptEl = document.getElementById('transcript')
+          const pasteBtn = document.getElementById('pasteBtn')
           if (result.autoTranscribed) {
             if (result.text) {
-              const transcriptEl = document.getElementById('transcript')
               if (transcriptEl) {
                 transcriptEl.textContent = result.text || '(empty)'
                 transcriptEl.style.display = 'block'
               }
-              // enable paste button when transcript appears
-              const pasteBtn = document.getElementById('pasteBtn')
               if (pasteBtn) pasteBtn.disabled = false
+              const copyBtn = document.getElementById('copyBtn')
+              if (copyBtn) copyBtn.disabled = false
+              // hide any progress UI since we have a final-looking auto-transcript
+              const progressEl = document.getElementById('progress')
+              if (progressEl) progressEl.style.display = 'none'
               let statusMsg = `Auto-transcribed (wav: ${result.wav || 'unknown'})`
-              if (result.originalText && result.originalText !== result.text) {
-                statusMsg += ' [Polished by Ollama]'
-              }
-              if (result.polishError) {
-                statusMsg += ` [Polish error: ${result.polishError}]`
-              }
-              // If polishing failed and we have retry info, show an actionable hint
+              if (result.originalText && result.originalText !== result.text) statusMsg += ' [Polished by Ollama]'
+              if (result.polishError) statusMsg += ` [Polish error: ${result.polishError}]`
               if (result.polishError && result.polishTriedHosts) {
                 const tried = result.polishTriedHosts.join(', ')
                 statusMsg += ` — Ollama unreachable at configured host; tried ${tried}. Start Ollama (ollama serve) or set Ollama URL to http://127.0.0.1:11434 in Settings.`
@@ -69,6 +127,36 @@ async function startRecording () {
               status.textContent = statusMsg
             } else if (result.error) {
               status.textContent = `Auto-transcribe error: ${result.error}`
+            }
+          } else {
+            // Run a final transcription now (this ensures hotkey stop finalizes)
+            try {
+              status.textContent = 'Finalizing transcription...'
+              const r = await window.electronAPI.transcribeFile(result.path)
+              if (r && r.ok) {
+                if (r.text && String(r.text).trim().length > 0) {
+                  status.textContent = `Transcribed (wav: ${r.wav})`
+                  if (transcriptEl) {
+                    transcriptEl.textContent = r.text
+                    transcriptEl.style.display = 'block'
+                    if (pasteBtn) pasteBtn.disabled = false
+                    const copyBtn = document.getElementById('copyBtn')
+                    if (copyBtn) copyBtn.disabled = false
+                    const progressEl = document.getElementById('progress')
+                    if (progressEl) progressEl.style.display = 'none'
+                  }
+                } else {
+                  status.textContent = 'No speech detected in recording (transcript empty).'
+                  if (transcriptEl) {
+                    transcriptEl.textContent = '(empty)'
+                    transcriptEl.style.display = 'block'
+                  }
+                }
+              } else {
+                status.textContent = `Transcription failed: ${r && r.error ? r.error : 'unknown'}`
+              }
+            } catch (err) {
+              status.textContent = 'Transcription failed: ' + err
             }
           }
         } else {
@@ -82,8 +170,59 @@ async function startRecording () {
     }
     mediaRecorder.start()
     recording = true
-    status.textContent = 'Recording...'
+  status.textContent = 'Recording...'
+  // show progress indicator in capturing state
+  const progressEl = document.getElementById('progress')
+  const progressText = document.getElementById('progressText')
+  if (progressEl) progressEl.style.display = 'block'
+  if (progressText) progressText.textContent = 'capturing'
     btn.textContent = 'Stop Recording'
+      // while capturing, other controls don't make sense — disable them
+      try {
+        const transBtn = document.getElementById('transcribeBtn')
+        const pasteBtn = document.getElementById('pasteBtn')
+        const copyBtn = document.getElementById('copyBtn')
+        const clearBtn = document.getElementById('clearBtn')
+        if (transBtn) transBtn.disabled = true
+        if (pasteBtn) pasteBtn.disabled = true
+        if (copyBtn) { copyBtn.disabled = true; copyBtn.textContent = 'Copy' }
+        if (clearBtn) clearBtn.disabled = true
+      } catch (e) { /* ignore UI plumbing errors */ }
+    // Also start background PCM capture so the app can send larger WAV chunks while recording.
+    try {
+      // reset buffers/state
+      pcmBuffer = []
+      // create an AudioContext + ScriptProcessor to capture raw PCM for robust transcription
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+      sourceNode = audioCtx.createMediaStreamSource(stream)
+      processorNode = audioCtx.createScriptProcessor(4096, 1, 1)
+      processorNode.onaudioprocess = (ev) => {
+        try {
+          const ch = ev.inputBuffer.getChannelData(0)
+          // copy floats
+          pcmBuffer.push(new Float32Array(ch))
+          // estimate collected seconds
+          const collected = pcmBuffer.reduce((s, a) => s + a.length, 0) / (audioCtx.sampleRate || 48000)
+          if (collected >= PCM_TARGET_SECONDS) {
+            // merge and encode to WAV
+            const totalLen = pcmBuffer.reduce((s, a) => s + a.length, 0)
+            const merged = new Float32Array(totalLen)
+            let offset = 0
+            for (const part of pcmBuffer) { merged.set(part, offset); offset += part.length }
+            pcmBuffer = []
+            const wavBytes = encodeWAV(merged, audioCtx.sampleRate || 48000)
+            // send WAV bytes to main (non-blocking); background-only (no UI shown)
+            try {
+              window.electronAPI.sendAudioChunk && window.electronAPI.sendAudioChunk(wavBytes).catch(() => {})
+            } catch (e) { /* ignore */ }
+          }
+        } catch (e) { console.warn('processor error', e) }
+      }
+      sourceNode.connect(processorNode)
+      processorNode.connect(audioCtx.destination)
+    } catch (e) {
+      console.warn('AudioContext setup failed', e)
+    }
   } catch (err) {
     status.textContent = 'Microphone access denied or unavailable'
     console.error('startRecording error', err)
@@ -105,9 +244,52 @@ function stopRecording () {
     }
     mediaRecorder.stop()
   }
+  // shutdown background AudioContext and flush any remaining PCM as a final WAV chunk
+  try {
+    if (processorNode) {
+      try { processorNode.disconnect() } catch (e) {}
+      try { processorNode.onaudioprocess = null } catch (e) {}
+      processorNode = null
+    }
+    if (sourceNode) { try { sourceNode.disconnect() } catch (e) {} sourceNode = null }
+    if (audioCtx) {
+      // flush pcmBuffer
+      if (pcmBuffer && pcmBuffer.length > 0) {
+        const totalLen = pcmBuffer.reduce((s, a) => s + a.length, 0)
+        const merged = new Float32Array(totalLen)
+        let offset = 0
+        for (const part of pcmBuffer) { merged.set(part, offset); offset += part.length }
+        pcmBuffer = []
+        const wavBytes = encodeWAV(merged, audioCtx.sampleRate || 48000)
+        try {
+          window.electronAPI.sendAudioChunk && window.electronAPI.sendAudioChunk(wavBytes).catch(() => {})
+        } catch (e) { /* ignore */ }
+      }
+      try { audioCtx.close() } catch (e) {}
+      audioCtx = null
+    }
+  } catch (e) {
+    console.warn('AudioContext shutdown failed', e)
+  }
   recording = false
   status.textContent = 'Stopping...'
+  // indicate we're finalizing; keep transcript hidden until final result
+  const progressEl = document.getElementById('progress')
+  const progressText = document.getElementById('progressText')
+  if (progressEl) progressEl.style.display = 'block'
+  if (progressText) progressText.textContent = 'finalizing...'
   btn.textContent = 'Start Recording'
+    // keep controls disabled while finalizing to avoid confusing interactions
+    try {
+      const transBtn = document.getElementById('transcribeBtn')
+      const pasteBtn = document.getElementById('pasteBtn')
+      const copyBtn = document.getElementById('copyBtn')
+      const clearBtn = document.getElementById('clearBtn')
+      if (transBtn) transBtn.disabled = true
+      if (pasteBtn) pasteBtn.disabled = true
+      if (copyBtn) copyBtn.disabled = true
+      if (clearBtn) clearBtn.disabled = true
+    } catch (e) { /* ignore */ }
 }
 
 function toggleRecording () {
@@ -120,6 +302,170 @@ window.electronAPI.onRecordToggle((state) => {
   if (state && !recording) startRecording()
   else if (!state && recording) stopRecording()
 })
+
+// Listen for Ollama availability status from main and disable UI if
+// Ollama/LLM is not reachable. The app requires polishing, so we prevent
+// recording/transcription until Ollama is available.
+if (window.electronAPI && window.electronAPI.onOllamaStatus) {
+  window.electronAPI.onOllamaStatus((st) => {
+    try { if (_ollamaStatusTimer) { clearTimeout(_ollamaStatusTimer); _ollamaStatusTimer = null } } catch (e) {}
+    try {
+      const recBtn = document.getElementById('recordBtn')
+      const transBtn = document.getElementById('transcribeBtn')
+      const pasteBtn = document.getElementById('pasteBtn')
+      const copyBtn = document.getElementById('copyBtn')
+      const clearBtn = document.getElementById('clearBtn')
+      const statusEl = document.getElementById('status')
+      if (!st || !st.ok) {
+        // show error and disable controls
+        if (statusEl) statusEl.textContent = `Ollama unavailable: ${st && st.error ? st.error : 'Please start Ollama at the configured URL.'}`
+        if (recBtn) recBtn.disabled = true
+        if (transBtn) transBtn.disabled = true
+        if (pasteBtn) pasteBtn.disabled = true
+        if (copyBtn) copyBtn.disabled = true
+        if (clearBtn) clearBtn.disabled = true
+      } else {
+        // Ollama is available — restore normal readiness
+        if (statusEl) statusEl.textContent = 'Ready (Ollama connected)'
+        if (recBtn) recBtn.disabled = false
+        // keep other controls disabled until a transcript appears
+      }
+    } catch (e) { console.error('onOllamaStatus handler', e) }
+  })
+}
+
+// Listen for Whisper availability status from main and disable recording if Whisper is required but missing.
+if (window.electronAPI && window.electronAPI.onWhisperStatus) {
+  window.electronAPI.onWhisperStatus((st) => {
+    try { if (_ollamaStatusTimer) { clearTimeout(_ollamaStatusTimer); _ollamaStatusTimer = null } } catch (e) {}
+    try {
+      const recBtn = document.getElementById('recordBtn')
+      const statusEl = document.getElementById('status')
+      if (!st || !st.ok) {
+        if (statusEl) statusEl.textContent = `Whisper unavailable: ${st && st.error ? st.error : 'Please install or configure Whisper.'}`
+        if (recBtn) recBtn.disabled = true
+      } else {
+        if (statusEl) statusEl.textContent = 'Ready (Whisper connected)'
+        if (recBtn) recBtn.disabled = false
+        // Auto-fill Whisper binary path in Settings if empty
+        try {
+          const wb = document.getElementById('whisperBin')
+          if (wb && (!wb.value || wb.value.trim().length === 0) && st.path) wb.value = st.path
+          // Auto-save detected Whisper path into Settings if the user hasn't configured a transcription template yet.
+          ;(async () => {
+            try {
+              if (!st || !st.path) return
+              const cur = await window.electronAPI.getSettings()
+              const tpl = cur && cur.transcribe_cmd ? (String(cur.transcribe_cmd).trim()) : ''
+              // Only auto-save when there is no existing template configured.
+              if (!tpl || tpl.length === 0) {
+                // Try to preserve a model path if user filled it in the UI
+                const modelInput = document.getElementById('modelPath')
+                const model = modelInput && modelInput.value && modelInput.value.trim().length > 0 ? modelInput.value.trim() : null
+                const newTpl = model ? `${st.path} -m ${model} -f {wav}` : `${st.path} {wav}`
+                try {
+                  await window.electronAPI.saveSettings({ transcribe_cmd: newTpl })
+                  const settingsResult = document.getElementById('settingsResult')
+                  if (settingsResult) settingsResult.textContent = 'Auto-saved detected Whisper binary into Settings.'
+                } catch (e) {
+                  console.error('Failed to auto-save Whisper path to settings', e)
+                }
+              }
+            } catch (e) {
+              console.error('auto-save whisper path error', e)
+            }
+          })()
+        } catch (e) { /* ignore UI autofill errors */ }
+      }
+    } catch (e) { console.error('onWhisperStatus handler', e) }
+  })
+}
+
+// Apply live patches sent from main (rolling transcription)
+// Suppress live partials in the UI: do not display incremental live patches to avoid confusion.
+if (window.electronAPI && window.electronAPI.onLivePatch) {
+  window.electronAPI.onLivePatch((patch) => {
+    try {
+      // Only log for debugging; do not update the visible transcript.
+      console.debug('live-patch (hidden):', patch)
+      // Allow paste button to be enabled only after finalization — do not enable here.
+    } catch (e) { console.error('onLivePatch handler error', e) }
+  })
+}
+
+  // Listen for centralized finalize result emitted by main and update UI + paste availability
+  if (window.electronAPI && window.electronAPI.onFinalizeResult) {
+    window.electronAPI.onFinalizeResult((res) => {
+      try {
+        const transcriptEl = document.getElementById('transcript')
+        const pasteBtn = document.getElementById('pasteBtn')
+        const copyBtn = document.getElementById('copyBtn')
+        const progressEl = document.getElementById('progress')
+        const progressText = document.getElementById('progressText')
+        // hide progress UI
+        if (progressEl) progressEl.style.display = 'none'
+
+        if (res && res.ok && res.text) {
+          // show only the polished final text
+          if (transcriptEl) {
+            transcriptEl.textContent = res.text
+            transcriptEl.style.display = 'block'
+          }
+          // enable copy and paste controls
+          if (pasteBtn) pasteBtn.disabled = false
+          if (copyBtn) copyBtn.disabled = false
+          // enable Clear & Re-record so user can discard and try again
+          const clearBtn = document.getElementById('clearBtn')
+          if (clearBtn) clearBtn.disabled = false
+
+          // Update status depending on whether main already attempted auto-paste
+          const status = document.getElementById('status')
+          if (res.pasteResult && res.pasteResult.ok) {
+            if (status) status.textContent = 'Finalized — pasted into front app.'
+          } else if (res.pasteResult && !res.pasteResult.ok) {
+            if (status) status.textContent = `Finalized — paste failed: ${res.pasteResult.error}`
+          } else {
+            // attempt to auto-paste from renderer as a fallback
+            (async () => {
+              try {
+                if (pasteBtn) {
+                  // call main paste handler via preload
+                  const pasteRes = await window.electronAPI.pasteToFront(res.text)
+                  if (pasteRes && pasteRes.ok) {
+                    if (status) status.textContent = 'Finalized — pasted into front app.'
+                  } else {
+                    if (status) status.textContent = 'Finalized — ready to paste'
+                  }
+                  // diagnostics: query the frontmost app and our document focus state
+                  try {
+                    const front = await window.electronAPI.getFrontmostApp()
+                    const docHas = document.hasFocus()
+                    const vis = document.visibilityState
+                    const ae = document.activeElement && (document.activeElement.id || document.activeElement.tagName) ? (document.activeElement.id || document.activeElement.tagName) : 'none'
+                    if (status) status.textContent += ` — debug(frontmost=${front && front.ok ? front.name : String(front && front.error || 'err')}, docHasFocus=${docHas}, visibility=${vis}, active=${ae})`
+                  } catch (e) {
+                    if (status) status.textContent += ` — debug(frontmost=err, docHasFocus=${document.hasFocus()})`
+                  }
+                }
+              } catch (e) {
+                if (status) status.textContent = 'Finalized — ready to paste'
+              }
+            })()
+          }
+
+          // No confetti: display only the polished transcript
+
+        } else {
+          const status = document.getElementById('status')
+          if (status) status.textContent = `Finalize failed: ${res && res.error ? res.error : 'unknown'}`
+          // ensure Clear button is enabled so the user can retry
+          try { const clearBtn = document.getElementById('clearBtn'); if (clearBtn) clearBtn.disabled = false } catch (e) {}
+        }
+      } catch (e) { console.error('onFinalizeResult handler', e) }
+    })
+  }
+
+// Live capture UI removed: background PCM capture is started/stopped with the normal record hotkey flow.
 
 // Transcribe button handler
 ;(function setupTranscribe () {
@@ -180,6 +526,64 @@ window.electronAPI.onRecordToggle((state) => {
         pasteBtn.disabled = false
       }
     })
+  }
+  // Copy button wiring (separate from finalize handler so it remains usable)
+  const copyBtnStatic = document.getElementById('copyBtn')
+  if (copyBtnStatic) {
+      copyBtnStatic.addEventListener('click', async () => {
+        try {
+          const transcriptEl = document.getElementById('transcript')
+          if (!transcriptEl) return
+          const text = transcriptEl.textContent || ''
+          if (!text) return
+          // provide immediate UI feedback and prevent double clicks
+          copyBtnStatic.disabled = true
+          let copied = false
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(text)
+              copied = true
+            }
+          } catch (e) {
+            // navigator.clipboard may be blocked (NotAllowedError) — fall back to main process
+            try {
+              const r = await window.electronAPI.writeToClipboard(text)
+              if (r && r.ok) copied = true
+            } catch (ee) { /* ignore */ }
+          }
+
+          if (copied) {
+            const prev = copyBtnStatic.textContent
+            copyBtnStatic.textContent = 'Copied!'
+            const statusEl = document.getElementById('status')
+            if (statusEl) statusEl.textContent = 'Copied to clipboard.'
+            setTimeout(() => {
+              try { copyBtnStatic.textContent = 'Copy' } catch (e) {}
+              try { copyBtnStatic.disabled = false } catch (e) {}
+            }, 1400)
+          } else {
+            // final fallback: try pasteToFront which writes clipboard in main and attempts paste
+            try {
+              const rr = await window.electronAPI.pasteToFront(text)
+              if (rr && rr.ok) {
+                const statusEl = document.getElementById('status')
+                if (statusEl) statusEl.textContent = 'Copied/pasted via fallback.'
+              } else {
+                const statusEl = document.getElementById('status')
+                if (statusEl) statusEl.textContent = `Copy failed: ${rr && rr.error ? rr.error : 'unknown'}`
+              }
+            } catch (e) {
+              const statusEl = document.getElementById('status')
+              if (statusEl) statusEl.textContent = 'Copy failed: ' + e
+            }
+            copyBtnStatic.disabled = false
+          }
+        } catch (err) {
+          copyBtnStatic.disabled = false
+          const statusEl = document.getElementById('status')
+          if (statusEl) statusEl.textContent = 'Copy failed: ' + err
+        }
+      })
   }
 })()
 
@@ -301,8 +705,36 @@ window.electronAPI.onRecordToggle((state) => {
   document.addEventListener('DOMContentLoaded', () => {
     const saveBtn = document.getElementById('saveSettingsBtn')
     const testBtn = document.getElementById('testSettingsBtn')
+    const recheckBtn = document.getElementById('recheckWhisperBtn')
     if (saveBtn) saveBtn.addEventListener('click', saveSettings)
     if (testBtn) testBtn.addEventListener('click', testSettings)
+    if (recheckBtn) recheckBtn.addEventListener('click', async () => {
+      try {
+        recheckBtn.disabled = true
+        const sr = document.getElementById('settingsResult')
+        if (sr) sr.textContent = 'Re-checking Whisper...'
+        const st = await window.electronAPI.getWhisperStatus()
+        if (!st) {
+          if (sr) sr.textContent = 'No response from main.'
+        } else if (!st.ok) {
+          if (sr) sr.textContent = `Whisper not found: ${st.error || 'unknown'}`
+          const statusEl = document.getElementById('status')
+          if (statusEl) statusEl.textContent = `Whisper unavailable: ${st && st.error ? st.error : 'whisper binary not found on PATH'}`
+        } else {
+          // populate whisper bin input and inform user
+          const whisperBin = document.getElementById('whisperBin')
+          if (whisperBin && st.path) whisperBin.value = st.path
+          if (sr) sr.textContent = `Whisper detected at ${st.path} (source: ${st.source || 'detected'})`
+          const statusEl = document.getElementById('status')
+          if (statusEl) statusEl.textContent = 'Ready (Whisper connected)'
+        }
+      } catch (e) {
+        const sr = document.getElementById('settingsResult')
+        if (sr) sr.textContent = 'Re-check failed: ' + e
+      } finally {
+        try { recheckBtn.disabled = false } catch (e) {}
+      }
+    })
     loadSettings()
     // add automation test UI (if not already present)
     try { setupAutomationTest() } catch (e) { /* ignore */ }
@@ -359,3 +791,144 @@ function setupAutomationTest () {
     }
   })
 }
+
+// Clear & Re-record button
+;(function setupClearButton() {
+  const clearBtn = document.getElementById('clearBtn')
+  if (!clearBtn) return
+  clearBtn.addEventListener('click', async () => {
+    try {
+      clearBtn.disabled = true
+      const statusEl = document.getElementById('status')
+      if (statusEl) statusEl.textContent = 'Clearing buffered audio...'
+      const res = await window.electronAPI.clearLiveBuffer()
+      if (res && res.ok) {
+        // clear UI transcript and re-enable recording
+        const transcriptEl = document.getElementById('transcript')
+        if (transcriptEl) { transcriptEl.textContent = ''; transcriptEl.style.display = 'none' }
+        if (statusEl) statusEl.textContent = `Cleared ${res.cleared || 0} files. Ready to record.`
+        // restart recording if not currently recording (trigger record button)
+        const recordBtn = document.getElementById('recordBtn')
+        if (recordBtn && recordBtn.textContent && recordBtn.textContent.includes('Start')) {
+          // start recording programmatically
+          recordBtn.click()
+        }
+      } else {
+        if (statusEl) statusEl.textContent = `Clear failed: ${res && res.error ? res.error : 'unknown'}`
+      }
+    } catch (err) {
+      console.error('clearBtn error', err)
+      const statusEl = document.getElementById('status')
+      if (statusEl) statusEl.textContent = 'Clear failed: ' + err
+    } finally {
+      clearBtn.disabled = false
+    }
+  })
+})()
+
+// Model download UI wiring
+;(function setupModelDownloadUI() {
+  document.addEventListener('DOMContentLoaded', () => {
+    const tiny = document.getElementById('downloadTinyBtn')
+    const small = document.getElementById('downloadSmallBtn')
+    const base = document.getElementById('downloadBaseBtn')
+    const statusEl = document.getElementById('downloadStatus')
+    const progressWrap = document.getElementById('downloadProgress')
+    const progressBar = document.getElementById('downloadProgressBar')
+    const modelPathInput = document.getElementById('modelPath')
+
+    if (!window.electronAPI || !window.electronAPI.downloadModel) return
+
+    let currentId = null
+
+    const onProgress = (p) => {
+      try {
+        if (!p || !p.modelId) return
+        if (currentId && p.modelId !== currentId) return
+        if (progressWrap) progressWrap.style.display = 'block'
+        const total = p.total || 0
+        const downloaded = p.downloaded || 0
+        if (total > 0) {
+          const pct = Math.round((downloaded / total) * 100)
+          if (progressBar) progressBar.style.width = pct + '%'
+          if (statusEl) statusEl.textContent = `Downloading ${p.modelId}: ${pct}% (${(downloaded/1024/1024).toFixed(2)} MB of ${(total/1024/1024).toFixed(2)} MB)`
+        } else {
+          if (statusEl) statusEl.textContent = `Downloading ${p.modelId}: ${(downloaded/1024/1024).toFixed(2)} MB` }
+      } catch (e) { console.warn('download progress handler', e) }
+    }
+
+    // subscribe once
+    try { window.electronAPI.onDownloadProgress((p) => onProgress(p)) } catch (e) { /* ignore */ }
+
+    async function confirmDownload (id) {
+      return new Promise((resolve) => {
+        try {
+          const modal = document.getElementById('downloadConfirmModal')
+          const title = document.getElementById('downloadConfirmTitle')
+          const body = document.getElementById('downloadConfirmBody')
+          const confirmBtn = document.getElementById('downloadConfirmBtn')
+          const cancelBtn = document.getElementById('downloadCancelBtn')
+          if (!modal || !title || !body || !confirmBtn || !cancelBtn) return resolve(true)
+          const sizes = { tiny: '≈30 MB', small: '≈250 MB', base: '≈1.4 GB' }
+          title.textContent = `Download ${id} model?`
+          body.textContent = `This will download the ${id} model (${sizes[id] || 'large file'}). Continue?`
+          modal.style.display = 'flex'
+          const cleanup = () => { modal.style.display = 'none'; confirmBtn.onclick = null; cancelBtn.onclick = null }
+          confirmBtn.onclick = () => { cleanup(); resolve(true) }
+          cancelBtn.onclick = () => { cleanup(); resolve(false) }
+        } catch (e) { resolve(true) }
+      })
+    }
+
+    async function startDownload (id) {
+      try {
+        // ask for confirmation on larger models
+        if (id === 'small' || id === 'base') {
+          const ok = await confirmDownload(id)
+          if (!ok) return
+        }
+        currentId = id
+        if (statusEl) statusEl.textContent = `Starting download (${id})...`
+        if (progressBar) progressBar.style.width = '0%'
+        if (progressWrap) progressWrap.style.display = 'block'
+        // disable buttons while downloading
+        if (tiny) tiny.disabled = true
+        if (small) small.disabled = true
+        if (base) base.disabled = true
+
+        const res = await window.electronAPI.downloadModel(id)
+        if (res && res.ok) {
+          if (modelPathInput) modelPathInput.value = res.path
+          if (statusEl) statusEl.textContent = `Downloaded ${id} -> ${res.path}`
+          // if no transcribe template configured, auto-save one using whisper-cli
+          try {
+            const cur = await window.electronAPI.getSettings()
+            const tpl = cur && cur.transcribe_cmd ? String(cur.transcribe_cmd).trim() : ''
+            if (!tpl || tpl.length === 0) {
+              // try to use any detected whisper binary from the whisperBin input, else just set whisper-cli
+              const whisperBin = document.getElementById('whisperBin') && document.getElementById('whisperBin').value ? document.getElementById('whisperBin').value.trim() : 'whisper-cli'
+              const newTpl = `${whisperBin} -m ${res.path} -f {wav}`
+              await window.electronAPI.saveSettings({ transcribe_cmd: newTpl })
+              const settingsResult = document.getElementById('settingsResult')
+              if (settingsResult) settingsResult.textContent = 'Auto-saved transcribe_cmd with downloaded model.'
+            }
+          } catch (e) { console.warn('auto-save after download failed', e) }
+        } else {
+          if (statusEl) statusEl.textContent = `Download failed: ${res && res.error ? res.error : 'unknown'}`
+        }
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Download error: ${err && err.message ? err.message : err}`
+      } finally {
+        currentId = null
+        if (tiny) tiny.disabled = false
+        if (small) small.disabled = false
+        if (base) base.disabled = false
+        setTimeout(() => { if (progressWrap) progressWrap.style.display = 'none' }, 1500)
+      }
+    }
+
+    if (tiny) tiny.addEventListener('click', () => startDownload('tiny'))
+    if (small) small.addEventListener('click', () => startDownload('small'))
+    if (base) base.addEventListener('click', () => startDownload('base'))
+  })
+})()
