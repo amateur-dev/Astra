@@ -182,6 +182,36 @@ app.whenReady().then(() => {
       whisperStatus = { ok: false, error: String(e) }
       try { if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('whisper-status', { ok: false, error: String(e) }) } catch (ee) {}
     }
+    // Automated smoke-run helper (development only). When SMOKE_TEST=1 is set in
+    // the environment, perform a quick settings save + whisper detection + model
+    // existence check using example paths and exit. This helps validate the
+    // packaged behavior in CI or on local builders without manual UI interaction.
+    try {
+      if (process.env.SMOKE_TEST === '1') {
+        console.log('SMOKE_TEST enabled: running automated smoke checks')
+        // Example test values — adjust as appropriate for your CI/user.
+        const exampleBin = process.env.SMOKE_WHISPER_BIN || '/Users/dk_sukhani/whisper.cpp/build/bin/whisper-cli'
+        const exampleModel = process.env.SMOKE_WHISPER_MODEL || '/Users/dk_sukhani/models/ggml-tiny.en.bin'
+        const tpl = `${exampleBin} -m ${exampleModel} -f {wav}`
+        try { store.set('transcribe_cmd', tpl) } catch (e) { console.warn('SMOKE_TEST: store.set failed', e) }
+        const ws2 = await checkWhisperAvailability(tpl)
+        console.log('SMOKE_TEST: whisper-status ->', ws2)
+        const modelExists = fs.existsSync(exampleModel)
+        console.log(`SMOKE_TEST: model ${exampleModel} exists=${modelExists}`)
+        // Exit with non-zero code if checks failed to surface CI errors
+        if (!ws2 || !ws2.ok || !modelExists) {
+          console.error('SMOKE_TEST: FAILED')
+          // allow a short delay for logs to flush
+          setTimeout(() => { process.exit(2) }, 200)
+        } else {
+          console.log('SMOKE_TEST: OK')
+          setTimeout(() => { process.exit(0) }, 200)
+        }
+      }
+    } catch (e) {
+      console.error('SMOKE_TEST runner error', e)
+      setTimeout(() => { process.exit(3) }, 200)
+    }
   })()
 })
 
