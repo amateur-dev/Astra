@@ -1,5 +1,17 @@
 const status = document.getElementById('status')
 const btn = document.getElementById('recordBtn')
+// Initially disable recording until Ollama availability is confirmed.
+if (btn) btn.disabled = true
+if (status) status.textContent = 'Checking Ollama availability...'
+// Safety: if main never reports Ollama availability (mismatch between branches
+// or startup failure), don't block the UI forever. After a short timeout
+// enable the record button with a warning so the user can still test the app.
+let _ollamaStatusTimer = setTimeout(() => {
+  try {
+    if (btn) btn.disabled = false
+    if (status) status.textContent = 'Ready (Ollama status unknown — continuing without LLM check)'
+  } catch (e) {}
+}, 3500)
 let recording = false
 let mediaRecorder = null
 let chunks = []
@@ -165,6 +177,17 @@ async function startRecording () {
   if (progressEl) progressEl.style.display = 'block'
   if (progressText) progressText.textContent = 'capturing'
     btn.textContent = 'Stop Recording'
+      // while capturing, other controls don't make sense — disable them
+      try {
+        const transBtn = document.getElementById('transcribeBtn')
+        const pasteBtn = document.getElementById('pasteBtn')
+        const copyBtn = document.getElementById('copyBtn')
+        const clearBtn = document.getElementById('clearBtn')
+        if (transBtn) transBtn.disabled = true
+        if (pasteBtn) pasteBtn.disabled = true
+        if (copyBtn) { copyBtn.disabled = true; copyBtn.textContent = 'Copy' }
+        if (clearBtn) clearBtn.disabled = true
+      } catch (e) { /* ignore UI plumbing errors */ }
     // Also start background PCM capture so the app can send larger WAV chunks while recording.
     try {
       // reset buffers/state
@@ -256,6 +279,17 @@ function stopRecording () {
   if (progressEl) progressEl.style.display = 'block'
   if (progressText) progressText.textContent = 'finalizing...'
   btn.textContent = 'Start Recording'
+    // keep controls disabled while finalizing to avoid confusing interactions
+    try {
+      const transBtn = document.getElementById('transcribeBtn')
+      const pasteBtn = document.getElementById('pasteBtn')
+      const copyBtn = document.getElementById('copyBtn')
+      const clearBtn = document.getElementById('clearBtn')
+      if (transBtn) transBtn.disabled = true
+      if (pasteBtn) pasteBtn.disabled = true
+      if (copyBtn) copyBtn.disabled = true
+      if (clearBtn) clearBtn.disabled = true
+    } catch (e) { /* ignore */ }
 }
 
 function toggleRecording () {
@@ -268,6 +302,37 @@ window.electronAPI.onRecordToggle((state) => {
   if (state && !recording) startRecording()
   else if (!state && recording) stopRecording()
 })
+
+// Listen for Ollama availability status from main and disable UI if
+// Ollama/LLM is not reachable. The app requires polishing, so we prevent
+// recording/transcription until Ollama is available.
+if (window.electronAPI && window.electronAPI.onOllamaStatus) {
+  window.electronAPI.onOllamaStatus((st) => {
+    try { if (_ollamaStatusTimer) { clearTimeout(_ollamaStatusTimer); _ollamaStatusTimer = null } } catch (e) {}
+    try {
+      const recBtn = document.getElementById('recordBtn')
+      const transBtn = document.getElementById('transcribeBtn')
+      const pasteBtn = document.getElementById('pasteBtn')
+      const copyBtn = document.getElementById('copyBtn')
+      const clearBtn = document.getElementById('clearBtn')
+      const statusEl = document.getElementById('status')
+      if (!st || !st.ok) {
+        // show error and disable controls
+        if (statusEl) statusEl.textContent = `Ollama unavailable: ${st && st.error ? st.error : 'Please start Ollama at the configured URL.'}`
+        if (recBtn) recBtn.disabled = true
+        if (transBtn) transBtn.disabled = true
+        if (pasteBtn) pasteBtn.disabled = true
+        if (copyBtn) copyBtn.disabled = true
+        if (clearBtn) clearBtn.disabled = true
+      } else {
+        // Ollama is available — restore normal readiness
+        if (statusEl) statusEl.textContent = 'Ready (Ollama connected)'
+        if (recBtn) recBtn.disabled = false
+        // keep other controls disabled until a transcript appears
+      }
+    } catch (e) { console.error('onOllamaStatus handler', e) }
+  })
+}
 
 // Apply live patches sent from main (rolling transcription)
 // Suppress live partials in the UI: do not display incremental live patches to avoid confusion.
@@ -302,6 +367,9 @@ if (window.electronAPI && window.electronAPI.onLivePatch) {
           // enable copy and paste controls
           if (pasteBtn) pasteBtn.disabled = false
           if (copyBtn) copyBtn.disabled = false
+          // enable Clear & Re-record so user can discard and try again
+          const clearBtn = document.getElementById('clearBtn')
+          if (clearBtn) clearBtn.disabled = false
 
           // Update status depending on whether main already attempted auto-paste
           const status = document.getElementById('status')
@@ -321,6 +389,16 @@ if (window.electronAPI && window.electronAPI.onLivePatch) {
                   } else {
                     if (status) status.textContent = 'Finalized — ready to paste'
                   }
+                  // diagnostics: query the frontmost app and our document focus state
+                  try {
+                    const front = await window.electronAPI.getFrontmostApp()
+                    const docHas = document.hasFocus()
+                    const vis = document.visibilityState
+                    const ae = document.activeElement && (document.activeElement.id || document.activeElement.tagName) ? (document.activeElement.id || document.activeElement.tagName) : 'none'
+                    if (status) status.textContent += ` — debug(frontmost=${front && front.ok ? front.name : String(front && front.error || 'err')}, docHasFocus=${docHas}, visibility=${vis}, active=${ae})`
+                  } catch (e) {
+                    if (status) status.textContent += ` — debug(frontmost=err, docHasFocus=${document.hasFocus()})`
+                  }
                 }
               } catch (e) {
                 if (status) status.textContent = 'Finalized — ready to paste'
@@ -328,12 +406,13 @@ if (window.electronAPI && window.electronAPI.onLivePatch) {
             })()
           }
 
-          // show confetti via emoji markers around the transcript
-          if (transcriptEl) transcriptEl.textContent = '\n🎉 ' + transcriptEl.textContent + ' 🎉\n'
+          // No confetti: display only the polished transcript
 
         } else {
           const status = document.getElementById('status')
           if (status) status.textContent = `Finalize failed: ${res && res.error ? res.error : 'unknown'}`
+          // ensure Clear button is enabled so the user can retry
+          try { const clearBtn = document.getElementById('clearBtn'); if (clearBtn) clearBtn.disabled = false } catch (e) {}
         }
       } catch (e) { console.error('onFinalizeResult handler', e) }
     })
@@ -404,22 +483,60 @@ if (window.electronAPI && window.electronAPI.onLivePatch) {
   // Copy button wiring (separate from finalize handler so it remains usable)
   const copyBtnStatic = document.getElementById('copyBtn')
   if (copyBtnStatic) {
-    copyBtnStatic.addEventListener('click', async () => {
-      try {
-        const transcriptEl = document.getElementById('transcript')
-        if (!transcriptEl) return
-        const text = transcriptEl.textContent || ''
-        if (!text) return
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(text)
-        } else {
-          try { await window.electronAPI.pasteToFront(text) } catch (e) { /* ignore */ }
+      copyBtnStatic.addEventListener('click', async () => {
+        try {
+          const transcriptEl = document.getElementById('transcript')
+          if (!transcriptEl) return
+          const text = transcriptEl.textContent || ''
+          if (!text) return
+          // provide immediate UI feedback and prevent double clicks
+          copyBtnStatic.disabled = true
+          let copied = false
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(text)
+              copied = true
+            }
+          } catch (e) {
+            // navigator.clipboard may be blocked (NotAllowedError) — fall back to main process
+            try {
+              const r = await window.electronAPI.writeToClipboard(text)
+              if (r && r.ok) copied = true
+            } catch (ee) { /* ignore */ }
+          }
+
+          if (copied) {
+            const prev = copyBtnStatic.textContent
+            copyBtnStatic.textContent = 'Copied!'
+            const statusEl = document.getElementById('status')
+            if (statusEl) statusEl.textContent = 'Copied to clipboard.'
+            setTimeout(() => {
+              try { copyBtnStatic.textContent = 'Copy' } catch (e) {}
+              try { copyBtnStatic.disabled = false } catch (e) {}
+            }, 1400)
+          } else {
+            // final fallback: try pasteToFront which writes clipboard in main and attempts paste
+            try {
+              const rr = await window.electronAPI.pasteToFront(text)
+              if (rr && rr.ok) {
+                const statusEl = document.getElementById('status')
+                if (statusEl) statusEl.textContent = 'Copied/pasted via fallback.'
+              } else {
+                const statusEl = document.getElementById('status')
+                if (statusEl) statusEl.textContent = `Copy failed: ${rr && rr.error ? rr.error : 'unknown'}`
+              }
+            } catch (e) {
+              const statusEl = document.getElementById('status')
+              if (statusEl) statusEl.textContent = 'Copy failed: ' + e
+            }
+            copyBtnStatic.disabled = false
+          }
+        } catch (err) {
+          copyBtnStatic.disabled = false
+          const statusEl = document.getElementById('status')
+          if (statusEl) statusEl.textContent = 'Copy failed: ' + err
         }
-        status.textContent = 'Copied to clipboard.'
-      } catch (err) {
-        status.textContent = 'Copy failed: ' + err
-      }
-    })
+      })
   }
 })()
 
