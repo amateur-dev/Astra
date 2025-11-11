@@ -832,8 +832,33 @@ function setupAutomationTest () {
     // subscribe once
     try { window.electronAPI.onDownloadProgress((p) => onProgress(p)) } catch (e) { /* ignore */ }
 
+    async function confirmDownload (id) {
+      return new Promise((resolve) => {
+        try {
+          const modal = document.getElementById('downloadConfirmModal')
+          const title = document.getElementById('downloadConfirmTitle')
+          const body = document.getElementById('downloadConfirmBody')
+          const confirmBtn = document.getElementById('downloadConfirmBtn')
+          const cancelBtn = document.getElementById('downloadCancelBtn')
+          if (!modal || !title || !body || !confirmBtn || !cancelBtn) return resolve(true)
+          const sizes = { tiny: '≈30 MB', small: '≈250 MB', base: '≈1.4 GB' }
+          title.textContent = `Download ${id} model?`
+          body.textContent = `This will download the ${id} model (${sizes[id] || 'large file'}). Continue?`
+          modal.style.display = 'flex'
+          const cleanup = () => { modal.style.display = 'none'; confirmBtn.onclick = null; cancelBtn.onclick = null }
+          confirmBtn.onclick = () => { cleanup(); resolve(true) }
+          cancelBtn.onclick = () => { cleanup(); resolve(false) }
+        } catch (e) { resolve(true) }
+      })
+    }
+
     async function startDownload (id) {
       try {
+        // ask for confirmation on larger models
+        if (id === 'small' || id === 'base') {
+          const ok = await confirmDownload(id)
+          if (!ok) return
+        }
         currentId = id
         if (statusEl) statusEl.textContent = `Starting download (${id})...`
         if (progressBar) progressBar.style.width = '0%'
