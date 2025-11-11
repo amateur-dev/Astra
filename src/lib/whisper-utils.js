@@ -33,6 +33,27 @@ async function checkWhisperAvailability (tplOverride) {
       })
       if (p) { found = p; break }
     }
+    // If not found on PATH, try common absolute locations where users build whisper.cpp
+    if (!found) {
+      const home = process.env.HOME || ''
+      const absoluteCandidates = []
+      // common build locations
+      if (home) {
+        absoluteCandidates.push(path.join(home, 'whisper.cpp', 'build', 'bin', 'whisper-cli'))
+        absoluteCandidates.push(path.join(home, 'whisper.cpp', 'build', 'bin', 'main'))
+        absoluteCandidates.push(path.join(home, 'whisper.cpp', 'build', 'whisper-cli'))
+        absoluteCandidates.push(path.join(home, 'whisper.cpp', 'main'))
+      }
+      absoluteCandidates.push('/opt/homebrew/bin/whisper-cli')
+      absoluteCandidates.push('/usr/local/bin/whisper-cli')
+      absoluteCandidates.push('/usr/bin/whisper-cli')
+      absoluteCandidates.push('/bin/whisper-cli')
+      for (const pth of absoluteCandidates) {
+        try {
+          if (pth && fs.existsSync(pth)) { found = pth; break }
+        } catch (e) { /* ignore */ }
+      }
+    }
     if (found) return { ok: true, path: found, source: 'which' }
     return { ok: false, error: 'whisper binary not found on PATH' }
   } catch (err) {
