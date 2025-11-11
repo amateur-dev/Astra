@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // open system microphone privacy settings
   openMicrophoneSettings: () => ipcRenderer.invoke('open-microphone-settings')
   ,
+  // Whisper availability status (main will emit at startup)
+  onWhisperStatus: (cb) => ipcRenderer.on('whisper-status', (event, status) => cb(status)),
+  getWhisperStatus: () => ipcRenderer.invoke('whisper-status'),
   // automation / apple events helpers
   testAutomation: () => ipcRenderer.invoke('test-automation'),
   openAutomationSettings: () => ipcRenderer.invoke('open-automation-settings')
