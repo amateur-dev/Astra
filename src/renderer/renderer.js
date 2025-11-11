@@ -334,6 +334,24 @@ if (window.electronAPI && window.electronAPI.onOllamaStatus) {
   })
 }
 
+// Listen for Whisper availability status from main and disable recording if Whisper is required but missing.
+if (window.electronAPI && window.electronAPI.onWhisperStatus) {
+  window.electronAPI.onWhisperStatus((st) => {
+    try { if (_ollamaStatusTimer) { clearTimeout(_ollamaStatusTimer); _ollamaStatusTimer = null } } catch (e) {}
+    try {
+      const recBtn = document.getElementById('recordBtn')
+      const statusEl = document.getElementById('status')
+      if (!st || !st.ok) {
+        if (statusEl) statusEl.textContent = `Whisper unavailable: ${st && st.error ? st.error : 'Please install or configure Whisper.'}`
+        if (recBtn) recBtn.disabled = true
+      } else {
+        if (statusEl) statusEl.textContent = 'Ready (Whisper connected)'
+        if (recBtn) recBtn.disabled = false
+      }
+    } catch (e) { console.error('onWhisperStatus handler', e) }
+  })
+}
+
 // Apply live patches sent from main (rolling transcription)
 // Suppress live partials in the UI: do not display incremental live patches to avoid confusion.
 if (window.electronAPI && window.electronAPI.onLivePatch) {

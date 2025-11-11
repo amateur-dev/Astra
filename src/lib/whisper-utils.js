@@ -1,5 +1,5 @@
 const fs = require('fs')
-const { exec } = require('child_process')
+// We require child_process at call-time so tests can stub `child_process.exec`
 
 // Check whether a 'whisper' binary is available on PATH or referenced in a
 // configured transcription template. Accepts an optional template override for
@@ -18,6 +18,7 @@ async function checkWhisperAvailability (tplOverride) {
     }
 
     const found = await new Promise((resolve) => {
+      const { exec } = require('child_process')
       exec('which whisper', (err, stdout) => {
         if (err) return resolve(null)
         const p = stdout && stdout.toString().trim()
