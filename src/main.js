@@ -88,12 +88,44 @@ function createTray () {
   const iconPath = path.join(__dirname, 'renderer', 'tray-icon.png')
   const icon = nativeImage.createFromPath(iconPath)
   tray = new Tray(icon)
+  updateTrayIcon('idle') // Start with idle state
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Open', click: () => { mainWindow.show() } },
     { label: 'Quit', click: () => { app.quit() } }
   ])
   tray.setToolTip('Voice Hotkey')
   tray.setContextMenu(contextMenu)
+}
+
+function updateTrayIcon(state) {
+  if (!tray) return
+  
+  try {
+    // Try to load state-specific icon, fall back to default
+    const iconFileName = state === 'recording' ? 'tray-icon-recording.png' :
+                         state === 'processing' ? 'tray-icon-processing.png' :
+                         'tray-icon.png' // idle/default
+    
+    const iconPath = path.join(__dirname, 'renderer', iconFileName)
+    
+    // Check if file exists, otherwise use default
+    if (fs.existsSync(iconPath)) {
+      const icon = nativeImage.createFromPath(iconPath)
+      tray.setImage(icon)
+      console.log(`Tray icon updated to: ${state}`)
+    } else {
+      console.warn(`Tray icon not found: ${iconPath}, using default`)
+      // For now, just update tooltip to show state
+      const tooltips = {
+        idle: 'Voice Hotkey - Ready',
+        recording: 'Voice Hotkey - Recording...',
+        processing: 'Voice Hotkey - Processing...'
+      }
+      tray.setToolTip(tooltips[state] || 'Voice Hotkey')
+    }
+  } catch (e) {
+    console.error('Failed to update tray icon:', e)
+  }
 }
 
 function createRecordingWindow () {
@@ -163,11 +195,13 @@ function registerHotkey (hotkey) {
       isRecording = !isRecording
       console.log('Toggled isRecording to:', isRecording)
       
-      // Show/hide recording window
+      // Show/hide recording window and update tray icon
       if (isRecording) {
         showRecordingWindow()
+        updateTrayIcon('recording')
       } else {
         hideRecordingWindow()
+        updateTrayIcon('processing') // Will change to idle after transcription completes
       }
       
       if (mainWindow && mainWindow.webContents) {
@@ -502,6 +536,9 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
             }
           }
 
+          // Reset tray icon to idle after successful transcription
+          updateTrayIcon('idle')
+
           return { 
             ok: true, 
             path: filename, 
@@ -517,13 +554,16 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           }
         }
         console.error('Transcription failed or returned no data:', tx)
+        updateTrayIcon('idle') // Reset even on failure
         return { ok: true, path: filename, autoTranscribed: true, error: tx && tx.error ? tx.error : 'transcription failed' }
       } catch (err) {
         console.error('Auto-transcription exception:', err)
+        updateTrayIcon('idle') // Reset even on error
         return { ok: true, path: filename, autoTranscribed: true, error: String(err) }
       }
     }
     console.log('Auto-transcribe disabled, returning saved path only')
+    updateTrayIcon('idle')
     return { ok: true, path: filename }
   } catch (err) {
     console.error('Failed to save recording:', err)
