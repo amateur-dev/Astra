@@ -83,28 +83,54 @@ function getTranscriptElement (createIfMissing) {
     copyBtn.addEventListener('click', async () => {
       const text = pre.textContent || ''
       if (!text) return
+      
+      let success = false
       try {
-        if (window.electronAPI && window.electronAPI.writeToClipboard) {
-          await window.electronAPI.writeToClipboard(text)
-        } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        // Try Electron API first
+        if (window.electronAPI && window.electronAPI.pasteToFront) {
+          try {
+            await window.electronAPI.pasteToFront(text)
+            success = true
+          } catch (e) {
+            console.log('pasteToFront failed, trying clipboard', e)
+          }
+        }
+        
+        // Try clipboard API
+        if (!success && navigator.clipboard && navigator.clipboard.writeText) {
           await navigator.clipboard.writeText(text)
-        } else {
-          // fallback: create temporary textarea
+          success = true
+        }
+        
+        // Fallback to execCommand
+        if (!success) {
           const ta = document.createElement('textarea')
           ta.value = text
+          ta.style.position = 'fixed'
+          ta.style.top = '-9999px'
           document.body.appendChild(ta)
           ta.select()
-          document.execCommand('copy')
+          success = document.execCommand('copy')
           ta.remove()
         }
-        // Visual feedback
+        
+        // Show appropriate feedback
         const originalText = copyBtn.textContent
         const originalClass = copyBtn.className
-        copyBtn.textContent = '✓ Copied!'
-        copyBtn.className = 'btn btn-primary' // Add primary styling for emphasis
-        copyBtn.style.background = '#34c759' // Green success color
-        copyBtn.style.borderColor = '#34c759'
-        copyBtn.style.color = '#fff'
+        
+        if (success) {
+          copyBtn.textContent = '✓ Copied!'
+          copyBtn.className = 'btn btn-primary'
+          copyBtn.style.background = '#34c759'
+          copyBtn.style.borderColor = '#34c759'
+          copyBtn.style.color = '#fff'
+        } else {
+          copyBtn.textContent = '✗ Failed'
+          copyBtn.style.background = '#ff3b30'
+          copyBtn.style.borderColor = '#ff3b30'
+          copyBtn.style.color = '#fff'
+        }
+        
         setTimeout(() => { 
           copyBtn.textContent = originalText
           copyBtn.className = originalClass
@@ -113,9 +139,15 @@ function getTranscriptElement (createIfMissing) {
           copyBtn.style.color = ''
         }, 2000)
       } catch (e) {
-        console.warn('copy failed', e)
-        copyBtn.textContent = '✗ Failed'
-        setTimeout(() => { copyBtn.textContent = 'Copy' }, 2000)
+        console.error('copy error', e)
+        copyBtn.textContent = '✗ Error'
+        copyBtn.style.background = '#ff3b30'
+        copyBtn.style.color = '#fff'
+        setTimeout(() => { 
+          copyBtn.textContent = 'Copy'
+          copyBtn.style.background = ''
+          copyBtn.style.color = ''
+        }, 2000)
       }
     })
 
