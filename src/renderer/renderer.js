@@ -97,10 +97,25 @@ function getTranscriptElement (createIfMissing) {
           document.execCommand('copy')
           ta.remove()
         }
-        copyBtn.textContent = 'Copied!'
-        setTimeout(() => { copyBtn.textContent = 'Copy' }, 1200)
+        // Visual feedback
+        const originalText = copyBtn.textContent
+        const originalClass = copyBtn.className
+        copyBtn.textContent = '✓ Copied!'
+        copyBtn.className = 'btn btn-primary' // Add primary styling for emphasis
+        copyBtn.style.background = '#34c759' // Green success color
+        copyBtn.style.borderColor = '#34c759'
+        copyBtn.style.color = '#fff'
+        setTimeout(() => { 
+          copyBtn.textContent = originalText
+          copyBtn.className = originalClass
+          copyBtn.style.background = ''
+          copyBtn.style.borderColor = ''
+          copyBtn.style.color = ''
+        }, 2000)
       } catch (e) {
         console.warn('copy failed', e)
+        copyBtn.textContent = '✗ Failed'
+        setTimeout(() => { copyBtn.textContent = 'Copy' }, 2000)
       }
     })
 
