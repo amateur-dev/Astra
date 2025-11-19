@@ -49,6 +49,7 @@ if (!fetch) {
 }
 
 let mainWindow = null
+let recordingWindow = null
 let tray = null
 let isRecording = false
 // Live mock state per renderer sender (used for incremental patch simulation)
@@ -95,6 +96,58 @@ function createTray () {
   tray.setContextMenu(contextMenu)
 }
 
+function createRecordingWindow () {
+  if (recordingWindow) {
+    recordingWindow.show();
+    return;
+  }
+  
+  recordingWindow = new BrowserWindow({
+    width: 440,
+    height: 240,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    skipTaskbar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  })
+  
+  recordingWindow.loadFile(path.join(__dirname, 'renderer', 'recording-window.html'))
+  
+  // Center on screen
+  const { screen } = require('electron')
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width, height } = primaryDisplay.workAreaSize
+  const winBounds = recordingWindow.getBounds()
+  recordingWindow.setPosition(
+    Math.floor((width - winBounds.width) / 2),
+    Math.floor((height - winBounds.height) / 3)
+  )
+  
+  recordingWindow.on('closed', () => {
+    recordingWindow = null
+  })
+}
+
+function showRecordingWindow () {
+  if (!recordingWindow) {
+    createRecordingWindow()
+  } else {
+    recordingWindow.show()
+  }
+}
+
+function hideRecordingWindow () {
+  if (recordingWindow) {
+    recordingWindow.hide()
+  }
+}
+
 function registerHotkey (hotkey) {
   try {
     // Remove any existing shortcut
@@ -109,6 +162,14 @@ function registerHotkey (hotkey) {
       console.log('Hotkey pressed:', hotkey, 'current isRecording:', isRecording)
       isRecording = !isRecording
       console.log('Toggled isRecording to:', isRecording)
+      
+      // Show/hide recording window
+      if (isRecording) {
+        showRecordingWindow()
+      } else {
+        hideRecordingWindow()
+      }
+      
       if (mainWindow && mainWindow.webContents) {
         mainWindow.webContents.send('record-toggle', isRecording)
         console.log('Sent record-toggle event to renderer')
@@ -226,6 +287,24 @@ ipcMain.handle('set-hotkey', async (event, hotkey) => {
   } catch (err) {
     return { ok: false, error: String(err) }
   }
+})
+
+// Recording window handlers
+ipcMain.handle('cancel-recording', async () => {
+  try {
+    isRecording = false
+    hideRecordingWindow()
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('record-toggle', false)
+    }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
+ipcMain.handle('is-recording', async () => {
+  return isRecording
 })
 
 // Test the configured transcription command. This will try to locate the binary and check the model file if present.
