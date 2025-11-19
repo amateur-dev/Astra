@@ -20,21 +20,39 @@
       user-select: none;
       -webkit-user-select: none;
       -webkit-app-region: drag;
+      width: 320px;
+      height: 160px;
     }
     
     .container {
-      padding: 20px;
+      padding: 12px 16px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 16px;
+      gap: 8px;
+      height: 100%;
+    }
+    
+    /* Recording State */
+    .recording-mode {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+    
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
     
     .logo {
-      width: 40px;
-      height: 40px;
+      width: 24px;
+      height: 24px;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border-radius: 8px;
+      border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -45,20 +63,20 @@
       content: '';
       width: 0;
       height: 0;
-      border-left: 12px solid transparent;
-      border-right: 12px solid transparent;
-      border-bottom: 20px solid white;
+      border-left: 8px solid transparent;
+      border-right: 8px solid transparent;
+      border-bottom: 13px solid white;
       transform: rotate(180deg);
     }
     
     .recording-indicator {
-      width: 10px;
-      height: 10px;
+      width: 8px;
+      height: 8px;
       background: #ff3b30;
       border-radius: 50%;
       position: absolute;
-      top: -2px;
-      right: -2px;
+      top: -1px;
+      right: -1px;
       animation: pulse 1.5s ease-in-out infinite;
     }
     
@@ -67,12 +85,20 @@
       50% { opacity: 0.6; transform: scale(1.1); }
     }
     
+    .timer {
+      font-size: 20px;
+      font-weight: 600;
+      color: #1d1d1f;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.5px;
+    }
+    
     .waveform-container {
-      width: 400px;
-      height: 80px;
+      width: 100%;
+      height: 60px;
       background: #f5f5f7;
-      border-radius: 12px;
-      padding: 8px;
+      border-radius: 8px;
+      padding: 6px;
       position: relative;
       overflow: hidden;
     }
@@ -83,18 +109,10 @@
       display: block;
     }
     
-    .timer {
-      font-size: 24px;
-      font-weight: 600;
-      color: #1d1d1f;
-      font-variant-numeric: tabular-nums;
-      letter-spacing: 0.5px;
-    }
-    
     .shortcuts {
       display: flex;
-      gap: 16px;
-      font-size: 13px;
+      gap: 12px;
+      font-size: 11px;
       color: #86868b;
     }
     
@@ -115,19 +133,44 @@
       box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
     
-    .status {
-      font-size: 13px;
-      color: #86868b;
-      font-weight: 500;
+    /* Processing State */
+    .processing-mode {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      padding: 20px 0;
     }
     
-    .audio-level {
+    .spinner {
+      width: 40px;
+      height: 40px;
+      position: relative;
+    }
+    
+    .spinner-circle {
       width: 100%;
-      height: 4px;
-      background: #e5e5ea;
-      border-radius: 2px;
-      overflow: hidden;
-      margin-top: 8px;
+      height: 100%;
+      border-radius: 50%;
+      border: 4px solid rgba(102, 126, 234, 0.15);
+      border-top-color: #667eea;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .status-text {
+      font-size: 14px;
+      font-weight: 500;
+      color: #1d1d1f;
+    }
+    
+    .sub-status {
+      font-size: 11px;
+      color: #86868b;
     }
     
     .audio-level-bar {
@@ -141,19 +184,40 @@
 </head>
 <body>
   <div class="container">
-    <div class="logo">
-      <div class="recording-indicator"></div>
+    <!-- Recording Mode -->
+    <div class="recording-mode" id="recordingMode">
+      <div class="header">
+        <div class="logo">
+          <div class="recording-indicator"></div>
+        </div>
+        <div class="timer" id="timer">00:00</div>
+      </div>
+      
+      <div class="waveform-container">
+        <canvas id="waveform"></canvas>
+      </div>
+      
+      <div class="shortcuts">
+        <div class="shortcut">
+          <span class="key">⌘</span><span class="key">⇧</span><span class="key">V</span>
+          <span>Stop</span>
+        </div>
+        <div class="shortcut">
+          <span class="key">Esc</span>
+          <span>Cancel</span>
+        </div>
+      </div>
     </div>
     
-    <div class="waveform-container">
-      <canvas id="waveform"></canvas>
+    <!-- Processing Mode -->
+    <div class="processing-mode" id="processingMode">
+      <div class="spinner">
+        <div class="spinner-circle"></div>
+      </div>
+      <div class="status-text" id="statusText">Transcribing</div>
+      <div class="sub-status" id="subStatus">Please wait...</div>
     </div>
-    
-    <div class="timer" id="timer">00:00</div>
-    
-    <div class="audio-level">
-      <div class="audio-level-bar" id="audioLevelBar"></div>
-    </div>
+  </div>
     
     <div class="status" id="status">Recording...</div>
     
@@ -281,6 +345,10 @@
     
     // Start recording UI
     async function startRecording() {
+      // Show recording mode
+      document.getElementById('recordingMode').style.display = 'flex';
+      document.getElementById('processingMode').style.display = 'none';
+      
       startTime = Date.now();
       timerInterval = setInterval(updateTimer, 1000);
       
@@ -302,6 +370,15 @@
       }
     }
     
+    // Switch to processing mode
+    function showProcessing() {
+      document.getElementById('recordingMode').style.display = 'none';
+      document.getElementById('processingMode').style.display = 'flex';
+      
+      // Stop recording UI elements
+      stopRecording();
+    }
+    
     // Stop recording UI
     function stopRecording() {
       if (timerInterval) {
@@ -321,16 +398,24 @@
     }
     
     // Listen for IPC messages from main process
-    if (window.electronAPI && window.electronAPI.onRecordingStart) {
-      window.electronAPI.onRecordingStart((stream) => {
-        startRecording(stream);
-      });
-    }
-    
-    if (window.electronAPI && window.electronAPI.onRecordingStop) {
-      window.electronAPI.onRecordingStop(() => {
-        stopRecording();
-      });
+    if (window.electronAPI) {
+      if (window.electronAPI.onRecordingStart) {
+        window.electronAPI.onRecordingStart((stream) => {
+          startRecording(stream);
+        });
+      }
+      
+      if (window.electronAPI.onRecordingStop) {
+        window.electronAPI.onRecordingStop(() => {
+          stopRecording();
+        });
+      }
+      
+      if (window.electronAPI.onShowProcessing) {
+        window.electronAPI.onShowProcessing(() => {
+          showProcessing();
+        });
+      }
     }
     
     // Handle Escape key

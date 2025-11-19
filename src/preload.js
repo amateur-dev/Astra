@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Recording window specific
   onRecordingStart: (cb) => ipcRenderer.on('recording-start', (event, stream) => cb(stream)),
   onRecordingStop: (cb) => ipcRenderer.on('recording-stop', () => cb()),
+  onShowProcessing: (cb) => ipcRenderer.on('show-processing', () => cb()),
   cancelRecording: () => ipcRenderer.invoke('cancel-recording'),
   isRecording: () => ipcRenderer.invoke('is-recording'),
   // Processing window specific
