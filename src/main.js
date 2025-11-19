@@ -84,11 +84,11 @@ function createWindow () {
 }
 
 function createTray () {
-  // tray icon lives in the renderer directory in source; when packaged the
-  // relative path should include 'renderer'. Use that path so the icon shows
-  // up in the menu bar when running the packaged app.
-  const iconPath = path.join(__dirname, 'renderer', 'tray-icon.png')
+  // macOS tray icons should use Template naming convention for automatic theme adaptation
+  // Template images auto-invert for dark/light mode
+  const iconPath = path.join(__dirname, 'renderer', 'tray-iconTemplate.png')
   const icon = nativeImage.createFromPath(iconPath)
+  icon.setTemplateImage(true) // Tell macOS this is a template image
   tray = new Tray(icon)
   updateTrayIcon('idle') // Start with idle state
   const contextMenu = Menu.buildFromTemplate([
@@ -102,32 +102,15 @@ function createTray () {
 function updateTrayIcon(state) {
   if (!tray) return
   
-  try {
-    // Try to load state-specific icon, fall back to default
-    const iconFileName = state === 'recording' ? 'tray-icon-recording.png' :
-                         state === 'processing' ? 'tray-icon-processing.png' :
-                         'tray-icon.png' // idle/default
-    
-    const iconPath = path.join(__dirname, 'renderer', iconFileName)
-    
-    // Check if file exists, otherwise use default
-    if (fs.existsSync(iconPath)) {
-      const icon = nativeImage.createFromPath(iconPath)
-      tray.setImage(icon)
-      console.log(`Tray icon updated to: ${state}`)
-    } else {
-      console.warn(`Tray icon not found: ${iconPath}, using default`)
-      // For now, just update tooltip to show state
-      const tooltips = {
-        idle: 'Voice Hotkey - Ready',
-        recording: 'Voice Hotkey - Recording...',
-        processing: 'Voice Hotkey - Processing...'
-      }
-      tray.setToolTip(tooltips[state] || 'Voice Hotkey')
-    }
-  } catch (e) {
-    console.error('Failed to update tray icon:', e)
+  // Update tooltip to show current state
+  // Template icons don't change color, so we use tooltip for status indication
+  const tooltips = {
+    idle: 'Voice Hotkey - Ready ⚪',
+    recording: 'Voice Hotkey - Recording 🔴',
+    processing: 'Voice Hotkey - Processing ⚙️'
   }
+  tray.setToolTip(tooltips[state] || 'Voice Hotkey')
+  console.log(`Tray state updated to: ${state}`)
 }
 
 function createRecordingWindow () {
@@ -315,8 +298,16 @@ function registerHotkey (hotkey) {
       if (isRecording) {
         showRecordingWindow()
         updateTrayIcon('recording')
+        // Notify recording window that recording has started
+        if (recordingWindow && recordingWindow.webContents) {
+          recordingWindow.webContents.send('recording-start')
+        }
       } else {
         hideRecordingWindow()
+        // Notify recording window that recording has stopped
+        if (recordingWindow && recordingWindow.webContents) {
+          recordingWindow.webContents.send('recording-stop')
+        }
         showProcessingWindow() // Show processing overlay
         updateTrayIcon('processing') // Will change to idle after transcription completes
       }
@@ -324,6 +315,19 @@ function registerHotkey (hotkey) {
       if (mainWindow && mainWindow.webContents) {
         mainWindow.webContents.send('record-toggle', isRecording)
         console.log('Sent record-toggle event to renderer')
+        
+        // Also show/hide recording window for manual button press
+        if (isRecording) {
+          showRecordingWindow()
+          if (recordingWindow && recordingWindow.webContents) {
+            recordingWindow.webContents.send('recording-start')
+          }
+        } else {
+          hideRecordingWindow()
+          if (recordingWindow && recordingWindow.webContents) {
+            recordingWindow.webContents.send('recording-stop')
+          }
+        }
       } else {
         console.warn('mainWindow not available to send record-toggle')
       }
