@@ -36,7 +36,7 @@
           <button id="recordBtn" class="btn btn-primary">Start Recording</button>
           <button id="clearBtn" class="btn" disabled>Clear & Re-Record</button>
         </div>
-        <div style="text-align:center; margin-top:8px; color:#888; font-size:13px">Hotkey: ⌘ + ⇧ + R</div>
+        <div style="text-align:center; margin-top:8px; color:#888; font-size:13px"><span id="hotkeyLabel">Hotkey: CommandOrControl+Shift+V</span></div>
       </div>
 
   <!-- Transcript will be injected into the Record card when available; no right-column shown by default -->
@@ -65,6 +65,15 @@
             <input id="modelPath" type="text" style="width:100%" placeholder="/Users/you/models/ggml-tiny.en.bin" />
           </label>
         </div>
+        <div style="margin-top:8px">
+          <label>Suggested transcription command (recommended):<br/>
+            <input id="suggestedCmd" type="text" style="width:100%" placeholder="Suggested Whisper CLI" disabled />
+          </label>
+          <div style="margin-top:6px; display:flex; gap:8px;">
+            <button id="useSuggestedBtn" class="btn">Use suggested</button>
+            <button id="copySuggestedBtn" class="btn">Copy suggested</button>
+          </div>
+        </div>
 
         <div style="margin-top:12px">
           <label>Download prebuilt ggml models:</label>
@@ -83,6 +92,9 @@
         <div style="margin-top:8px">
           <label><input id="ollamaEnabled" type="checkbox" /> Polish transcripts with Ollama (experimental)</label>
         </div>
+          <div style="margin-top:8px">
+            <label><input id="polishWhileTranscribe" type="checkbox" /> Polish with Ollama as part of transcription (on-demand)</label>
+          </div>
         <div style="margin-top:8px">
           <label>Ollama URL:<br/>
             <input id="ollamaUrl" type="text" style="width:100%" placeholder="http://localhost:11434" />
@@ -101,6 +113,16 @@
           <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
           <button id="testSettingsBtn" class="btn">Test Settings</button>
           <button id="recheckWhisperBtn" class="btn">Re-check Whisper</button>
+        </div>
+        <div style="margin-top:12px">
+          <label>Global hotkey (toggle recording):<br/>
+            <input id="hotkeyInput" type="text" style="width:100%" placeholder="CommandOrControl+Shift+V" />
+          </label>
+          <div style="margin-top:6px; display:flex; gap:8px;">
+            <button id="setHotkeyBtn" class="btn">Set hotkey (press keys)</button>
+            <button id="clearHotkeyBtn" class="btn">Clear hotkey</button>
+          </div>
+          <div style="margin-top:6px; color:#777; font-size:12px">Tip: Use a combination like Command/Control + Shift + V</div>
         </div>
         <div style="margin-top:8px">
           <label>Microphone permission:<br/>

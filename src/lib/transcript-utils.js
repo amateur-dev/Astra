@@ -4,15 +4,18 @@
 function cleanTranscript (text) {
   try {
     if (!text || typeof text !== 'string') return text
-    // Split into lines and drop lines that look like timestamps or are empty
-    const rawLines = text.split(/\r?\n/)
+    // First, remove timestamp patterns like [00:00:00.000 --> 00:00:07.000] from the text
+    // This handles both inline timestamps and standalone timestamp lines
+    let cleaned = text.replace(/\[\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?\s*-->\s*\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?\]/g, '')
+    // Also remove standalone timestamp patterns without brackets
+    cleaned = cleaned.replace(/\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?\s*-->\s*\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?/g, '')
+    
+    // Split into lines and clean each line
+    const rawLines = cleaned.split(/\r?\n/)
     const lines = []
     for (let i = 0; i < rawLines.length; i++) {
       let line = rawLines[i].trim()
       if (!line) continue
-      // If the line contains a timestamp pattern like 00:00:00 or 00:00:00.000 or an arrow -->, drop it
-      if (/\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?/.test(line)) continue
-      if (/-->|→/.test(line)) continue
       // Remove common bullet markers
       line = line.replace(/^\s*[-*•]\s+/, '')
       // If this line starts the caveat about changes, stop processing further lines

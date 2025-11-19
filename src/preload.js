@@ -7,7 +7,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ,
   saveRecording: (uint8Array) => ipcRenderer.invoke('save-recording', uint8Array)
   ,
-  transcribeFile: (webmPath) => ipcRenderer.invoke('transcribe', webmPath),
+  // transcribeFile accepts an optional options object: { polishNow: boolean }
+  transcribeFile: (webmPath, options = {}) => ipcRenderer.invoke('transcribe', webmPath, options),
   // settings
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
@@ -22,6 +23,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // open system microphone privacy settings
   openMicrophoneSettings: () => ipcRenderer.invoke('open-microphone-settings')
   ,
+  // polish a transcript with Ollama on-demand
+  polishTranscript: (text, options = {}) => ipcRenderer.invoke('polish-transcript', text, options),
+  // Hotkey: set or get
+  setHotkey: (hotkey) => ipcRenderer.invoke('set-hotkey', hotkey),
   // automation / apple events helpers
   testAutomation: () => ipcRenderer.invoke('test-automation'),
   openAutomationSettings: () => ipcRenderer.invoke('open-automation-settings')
