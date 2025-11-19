@@ -34,5 +34,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onRecordingStart: (cb) => ipcRenderer.on('recording-start', (event, stream) => cb(stream)),
   onRecordingStop: (cb) => ipcRenderer.on('recording-stop', () => cb()),
   cancelRecording: () => ipcRenderer.invoke('cancel-recording'),
-  isRecording: () => ipcRenderer.invoke('is-recording')
+  isRecording: () => ipcRenderer.invoke('is-recording'),
+  // Processing window specific
+  onProcessingProgress: (cb) => ipcRenderer.on('processing-progress', (event, data) => cb(data)),
+  onProcessingComplete: (cb) => ipcRenderer.on('processing-complete', () => cb()),
+  cancelTranscription: () => ipcRenderer.invoke('cancel-transcription')
 })
