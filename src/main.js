@@ -51,6 +51,7 @@ if (!fetch) {
 let mainWindow = null
 let recordingWindow = null
 let processingWindow = null
+let transcriptWindow = null
 let tray = null
 let isRecording = false
 // Live mock state per renderer sender (used for incremental patch simulation)
@@ -233,6 +234,68 @@ function hideProcessingWindow () {
   }
 }
 
+function createTranscriptWindow () {
+  if (transcriptWindow) {
+    transcriptWindow.show()
+    return
+  }
+
+  transcriptWindow = new BrowserWindow({
+    width: 680,
+    height: 520,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  transcriptWindow.loadFile(path.join(__dirname, 'renderer', 'transcript-result.html'))
+
+  // Center the window on screen
+  const { screen } = require('electron')
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
+  const winBounds = transcriptWindow.getBounds()
+  transcriptWindow.setPosition(
+    Math.round((screenWidth - winBounds.width) / 2),
+    Math.round((screenHeight - winBounds.height) / 2)
+  )
+
+  transcriptWindow.on('closed', () => {
+    transcriptWindow = null
+  })
+}
+
+function showTranscriptWindow (text) {
+  if (!transcriptWindow) {
+    createTranscriptWindow()
+  }
+  
+  // Wait for window to be ready, then send transcript data
+  if (transcriptWindow.webContents.isLoading()) {
+    transcriptWindow.webContents.once('did-finish-load', () => {
+      transcriptWindow.webContents.send('transcript-data', text)
+    })
+  } else {
+    transcriptWindow.webContents.send('transcript-data', text)
+  }
+  
+  transcriptWindow.show()
+}
+
+function hideTranscriptWindow () {
+  if (transcriptWindow) {
+    transcriptWindow.hide()
+  }
+}
+
 function registerHotkey (hotkey) {
   try {
     // Remove any existing shortcut
@@ -404,6 +467,18 @@ ipcMain.handle('cancel-transcription', async () => {
     return { ok: true }
   } catch (err) {
     console.error('cancel-transcription error:', err)
+    return { ok: false, error: String(err) }
+  }
+})
+
+// Close transcript result window
+ipcMain.handle('close-transcript-window', async () => {
+  try {
+    hideTranscriptWindow()
+    console.log('Transcript window closed')
+    return { ok: true }
+  } catch (err) {
+    console.error('close-transcript-window error:', err)
     return { ok: false, error: String(err) }
   }
 })
@@ -652,6 +727,12 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           // Reset tray icon to idle and hide processing window after successful transcription
           hideProcessingWindow()
           updateTrayIcon('idle')
+
+          // If paste failed and we have text, show transcript window
+          if (autoPaste && finalText && pasteResult && !pasteResult.ok) {
+            console.log('Paste failed, showing transcript window')
+            showTranscriptWindow(finalText)
+          }
 
           return { 
             ok: true, 

@@ -38,5 +38,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Processing window specific
   onProcessingProgress: (cb) => ipcRenderer.on('processing-progress', (event, data) => cb(data)),
   onProcessingComplete: (cb) => ipcRenderer.on('processing-complete', () => cb()),
-  cancelTranscription: () => ipcRenderer.invoke('cancel-transcription')
+  cancelTranscription: () => ipcRenderer.invoke('cancel-transcription'),
+  // Transcript result window specific
+  onTranscriptData: (cb) => ipcRenderer.on('transcript-data', (event, text) => cb(text)),
+  closeTranscriptWindow: () => ipcRenderer.invoke('close-transcript-window')
 })
