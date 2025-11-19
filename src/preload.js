@@ -29,5 +29,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setHotkey: (hotkey) => ipcRenderer.invoke('set-hotkey', hotkey),
   // automation / apple events helpers
   testAutomation: () => ipcRenderer.invoke('test-automation'),
-  openAutomationSettings: () => ipcRenderer.invoke('open-automation-settings')
+  openAutomationSettings: () => ipcRenderer.invoke('open-automation-settings'),
+  // Recording window specific
+  onRecordingStart: (cb) => ipcRenderer.on('recording-start', (event, stream) => cb(stream)),
+  onRecordingStop: (cb) => ipcRenderer.on('recording-stop', () => cb()),
+  cancelRecording: () => ipcRenderer.invoke('cancel-recording'),
+  isRecording: () => ipcRenderer.invoke('is-recording')
 })
