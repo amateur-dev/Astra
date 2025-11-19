@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recording...</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-app-region: drag;
+    }
+    
+    .container {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    
+    .logo {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    
+    .logo::before {
+      content: '';
+      width: 0;
+      height: 0;
+      border-left: 12px solid transparent;
+      border-right: 12px solid transparent;
+      border-bottom: 20px solid white;
+      transform: rotate(180deg);
+    }
+    
+    .recording-indicator {
+      width: 10px;
+      height: 10px;
+      background: #ff3b30;
+      border-radius: 50%;
+      position: absolute;
+      top: -2px;
+      right: -2px;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.1); }
+    }
+    
+    .waveform-container {
+      width: 400px;
+      height: 80px;
+      background: #f5f5f7;
+      border-radius: 12px;
+      padding: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    #waveform {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    
+    .timer {
+      font-size: 24px;
+      font-weight: 600;
+      color: #1d1d1f;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.5px;
+    }
+    
+    .shortcuts {
+      display: flex;
+      gap: 16px;
+      font-size: 13px;
+      color: #86868b;
+    }
+    
+    .shortcut {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .key {
+      background: #fff;
+      border: 1px solid #d2d2d7;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 11px;
+      font-weight: 500;
+      color: #1d1d1f;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    
+    .status {
+      font-size: 13px;
+      color: #86868b;
+      font-weight: 500;
+    }
+    
+    .audio-level {
+      width: 100%;
+      height: 4px;
+      background: #e5e5ea;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    
+    .audio-level-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #34c759 0%, #30d158 100%);
+      border-radius: 2px;
+      transition: width 0.1s ease-out;
+      width: 0%;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <div class="recording-indicator"></div>
+    </div>
+    
+    <div class="waveform-container">
+      <canvas id="waveform"></canvas>
+    </div>
+    
+    <div class="timer" id="timer">00:00</div>
+    
+    <div class="audio-level">
+      <div class="audio-level-bar" id="audioLevelBar"></div>
+    </div>
+    
+    <div class="status" id="status">Recording...</div>
+    
+    <div class="shortcuts">
+      <div class="shortcut">
+        <span class="key">⌘</span>
+        <span class="key">⇧</span>
+        <span class="key">V</span>
+        <span>Stop</span>
+      </div>
+      <div class="shortcut">
+        <span class="key">Esc</span>
+        <span>Cancel</span>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    const canvas = document.getElementById('waveform');
+    const ctx = canvas.getContext('2d');
+    const timerEl = document.getElementById('timer');
+    const statusEl = document.getElementById('status');
+    const audioLevelBar = document.getElementById('audioLevelBar');
+    
+    let startTime = null;
+    let timerInterval = null;
+    let animationId = null;
+    let audioContext = null;
+    let analyser = null;
+    let dataArray = null;
+    
+    // Set canvas resolution
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+    }
+    
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+    
+    // Initialize audio visualization
+    async function initAudioVisualization(stream) {
+      try {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        analyser.smoothingTimeConstant = 0.8;
+        
+        const source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+        
+        const bufferLength = analyser.frequencyBinCount;
+        dataArray = new Uint8Array(bufferLength);
+        
+        drawWaveform();
+      } catch (e) {
+        console.error('Failed to initialize audio visualization:', e);
+      }
+    }
+    
+    // Draw waveform visualization
+    function drawWaveform() {
+      if (!analyser || !dataArray) return;
+      
+      animationId = requestAnimationFrame(drawWaveform);
+      
+      analyser.getByteTimeDomainData(dataArray);
+      
+      const width = canvas.getBoundingClientRect().width;
+      const height = canvas.getBoundingClientRect().height;
+      
+      // Clear canvas
+      ctx.fillStyle = '#f5f5f7';
+      ctx.fillRect(0, 0, width, height);
+      
+      // Draw waveform
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#667eea';
+      ctx.beginPath();
+      
+      const sliceWidth = width / dataArray.length;
+      let x = 0;
+      
+      // Calculate audio level for level meter
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = (v * height) / 2;
+        
+        sum += Math.abs(v - 1.0);
+        
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+        
+        x += sliceWidth;
+      }
+      
+      ctx.lineTo(width, height / 2);
+      ctx.stroke();
+      
+      // Update audio level meter
+      const avgLevel = sum / dataArray.length;
+      const levelPercent = Math.min(100, avgLevel * 200);
+      audioLevelBar.style.width = levelPercent + '%';
+    }
+    
+    // Update timer
+    function updateTimer() {
+      if (!startTime) return;
+      
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const minutes = Math.floor(elapsed / 60);
+      const seconds = elapsed % 60;
+      
+      timerEl.textContent = 
+        String(minutes).padStart(2, '0') + ':' + 
+        String(seconds).padStart(2, '0');
+    }
+    
+    // Start recording UI
+    function startRecording(stream) {
+      startTime = Date.now();
+      timerInterval = setInterval(updateTimer, 1000);
+      
+      if (stream) {
+        initAudioVisualization(stream);
+      }
+    }
+    
+    // Stop recording UI
+    function stopRecording() {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+      
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+      
+      if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+      }
+    }
+    
+    // Listen for IPC messages from main process
+    if (window.electronAPI && window.electronAPI.onRecordingStart) {
+      window.electronAPI.onRecordingStart((stream) => {
+        startRecording(stream);
+      });
+    }
+    
+    if (window.electronAPI && window.electronAPI.onRecordingStop) {
+      window.electronAPI.onRecordingStop(() => {
+        stopRecording();
+      });
+    }
+    
+    // Handle Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (window.electronAPI && window.electronAPI.cancelRecording) {
+          window.electronAPI.cancelRecording();
+        }
+      }
+    });
+    
+    // Start immediately if recording is already in progress
+    if (window.electronAPI && window.electronAPI.isRecording) {
+      window.electronAPI.isRecording().then(recording => {
+        if (recording) {
+          startRecording(null);
+        }
+      });
+    }
+  </script>
+</body>
+</html>
