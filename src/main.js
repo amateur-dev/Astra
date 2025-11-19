@@ -140,8 +140,8 @@ function createRecordingWindow () {
   recordingWindow.loadFile(path.join(__dirname, 'renderer', 'recording-window.html'))
   
   // Set window level to float above fullscreen apps on macOS
-  // Level 3 = NSPopUpMenuWindowLevel (floats above fullscreen)
-  recordingWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  // 'screen-saver' is the highest level and should appear above everything
+  recordingWindow.setAlwaysOnTop(true, 'screen-saver')
   
   // Position on the screen where the cursor currently is (supports multi-monitor and fullscreen apps)
   const { screen } = require('electron')
