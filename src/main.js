@@ -120,13 +120,15 @@ function createRecordingWindow () {
   }
   
   recordingWindow = new BrowserWindow({
-    width: 440,
-    height: 240,
+    width: 320,
+    height: 160,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
     resizable: false,
     skipTaskbar: true,
+    visibleOnAllWorkspaces: true, // Stay visible across all desktops/spaces
+    fullscreenable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -296,6 +298,10 @@ function registerHotkey (hotkey) {
       
       // Show/hide recording window and update tray icon
       if (isRecording) {
+        // Hide main window when recording starts
+        if (mainWindow && mainWindow.isVisible()) {
+          mainWindow.hide()
+        }
         showRecordingWindow()
         updateTrayIcon('recording')
         // Notify recording window that recording has started
@@ -303,13 +309,13 @@ function registerHotkey (hotkey) {
           recordingWindow.webContents.send('recording-start')
         }
       } else {
-        hideRecordingWindow()
-        // Notify recording window that recording has stopped
+        // Keep recording window visible, just change its state to processing
+        updateTrayIcon('processing') // Will change to idle after transcription completes
+        // Notify recording window to switch to processing mode
         if (recordingWindow && recordingWindow.webContents) {
           recordingWindow.webContents.send('recording-stop')
+          recordingWindow.webContents.send('show-processing')
         }
-        showProcessingWindow() // Show processing overlay
-        updateTrayIcon('processing') // Will change to idle after transcription completes
       }
       
       if (mainWindow && mainWindow.webContents) {
@@ -745,9 +751,14 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
             }
           }
 
-          // Reset tray icon to idle and hide processing window after successful transcription
-          hideProcessingWindow()
+          // Reset tray icon to idle and hide recording window after successful transcription
+          hideRecordingWindow()
           updateTrayIcon('idle')
+          
+          // Show main window again
+          if (mainWindow && !mainWindow.isVisible()) {
+            mainWindow.show()
+          }
 
           // If paste failed and we have text, show transcript window
           if (autoPaste && finalText && pasteResult && !pasteResult.ok) {
@@ -770,19 +781,22 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           }
         }
         console.error('Transcription failed or returned no data:', tx)
-        hideProcessingWindow()
+        hideRecordingWindow()
         updateTrayIcon('idle') // Reset even on failure
+        if (mainWindow && !mainWindow.isVisible()) mainWindow.show()
         return { ok: true, path: filename, autoTranscribed: true, error: tx && tx.error ? tx.error : 'transcription failed' }
       } catch (err) {
         console.error('Auto-transcription exception:', err)
-        hideProcessingWindow()
+        hideRecordingWindow()
         updateTrayIcon('idle') // Reset even on error
+        if (mainWindow && !mainWindow.isVisible()) mainWindow.show()
         return { ok: true, path: filename, autoTranscribed: true, error: String(err) }
       }
     }
     console.log('Auto-transcribe disabled, returning saved path only')
-    hideProcessingWindow()
+    hideRecordingWindow()
     updateTrayIcon('idle')
+    if (mainWindow && !mainWindow.isVisible()) mainWindow.show()
     return { ok: true, path: filename }
   } catch (err) {
     console.error('Failed to save recording:', err)
