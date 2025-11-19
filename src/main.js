@@ -50,6 +50,7 @@ if (!fetch) {
 
 let mainWindow = null
 let recordingWindow = null
+let processingWindow = null
 let tray = null
 let isRecording = false
 // Live mock state per renderer sender (used for incremental patch simulation)
@@ -180,6 +181,58 @@ function hideRecordingWindow () {
   }
 }
 
+function createProcessingWindow () {
+  if (processingWindow) {
+    processingWindow.show()
+    return
+  }
+
+  processingWindow = new BrowserWindow({
+    width: 480,
+    height: 320,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  processingWindow.loadFile(path.join(__dirname, 'renderer', 'processing-overlay.html'))
+
+  // Center the window on screen
+  const { screen } = require('electron')
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
+  const winBounds = processingWindow.getBounds()
+  processingWindow.setPosition(
+    Math.round((screenWidth - winBounds.width) / 2),
+    Math.round((screenHeight - winBounds.height) / 2)
+  )
+
+  processingWindow.on('closed', () => {
+    processingWindow = null
+  })
+}
+
+function showProcessingWindow () {
+  if (!processingWindow) {
+    createProcessingWindow()
+  }
+  processingWindow.show()
+}
+
+function hideProcessingWindow () {
+  if (processingWindow) {
+    processingWindow.hide()
+  }
+}
+
 function registerHotkey (hotkey) {
   try {
     // Remove any existing shortcut
@@ -201,6 +254,7 @@ function registerHotkey (hotkey) {
         updateTrayIcon('recording')
       } else {
         hideRecordingWindow()
+        showProcessingWindow() // Show processing overlay
         updateTrayIcon('processing') // Will change to idle after transcription completes
       }
       
@@ -339,6 +393,19 @@ ipcMain.handle('cancel-recording', async () => {
 
 ipcMain.handle('is-recording', async () => {
   return isRecording
+})
+
+// Cancel ongoing transcription and hide processing window
+ipcMain.handle('cancel-transcription', async () => {
+  try {
+    hideProcessingWindow()
+    updateTrayIcon('idle')
+    console.log('Transcription cancelled by user')
+    return { ok: true }
+  } catch (err) {
+    console.error('cancel-transcription error:', err)
+    return { ok: false, error: String(err) }
+  }
 })
 
 // Test the configured transcription command. This will try to locate the binary and check the model file if present.
@@ -489,18 +556,55 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
     if (auto) {
       try {
         console.log('Starting auto-transcription...')
+        
+        // Send initial progress update
+        if (processingWindow && processingWindow.webContents) {
+          processingWindow.webContents.send('processing-progress', {
+            progress: 10,
+            status: 'transcribing',
+            subStatus: 'Preparing audio...'
+          })
+        }
+        
         let tx = null
         // If the file is a WAV, call transcribeWav directly; else transcribeWebm
         const fileIsWav = buffer.length >= 4 && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46
         if (fileIsWav) {
           console.log('Transcribing WAV file...')
+          
+          if (processingWindow && processingWindow.webContents) {
+            processingWindow.webContents.send('processing-progress', {
+              progress: 30,
+              status: 'transcribing',
+              subStatus: 'Running Whisper...'
+            })
+          }
+          
           tx = await transcribeWav(filename)
         } else {
           console.log('Transcribing WebM file...')
+          
+          if (processingWindow && processingWindow.webContents) {
+            processingWindow.webContents.send('processing-progress', {
+              progress: 30,
+              status: 'transcribing',
+              subStatus: 'Converting and transcribing...'
+            })
+          }
+          
           tx = await transcribeWebm(filename)
         }
         console.log('Transcription result:', tx)
         if (tx && tx.ok) {
+          // Send progress update for cleaning
+          if (processingWindow && processingWindow.webContents) {
+            processingWindow.webContents.send('processing-progress', {
+              progress: 80,
+              status: 'finalizing',
+              subStatus: 'Cleaning transcript...'
+            })
+          }
+          
           // Check if Ollama polishing is enabled
           const ollamaEnabled = store.get('ollama_enabled') === true
           let finalText = tx.text
@@ -516,6 +620,15 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           // Clean the final text (strip timestamps/caveat) before any further actions
           finalText = cleanTranscript(finalText)
           console.log('Final cleaned text:', finalText)
+
+          // Send progress update for pasting
+          if (processingWindow && processingWindow.webContents) {
+            processingWindow.webContents.send('processing-progress', {
+              progress: 95,
+              status: 'finalizing',
+              subStatus: 'Preparing to paste...'
+            })
+          }
 
           // If auto_paste is enabled, attempt to paste the final text into the front app
           let pasteResult = null
@@ -536,7 +649,8 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
             }
           }
 
-          // Reset tray icon to idle after successful transcription
+          // Reset tray icon to idle and hide processing window after successful transcription
+          hideProcessingWindow()
           updateTrayIcon('idle')
 
           return { 
@@ -554,15 +668,18 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           }
         }
         console.error('Transcription failed or returned no data:', tx)
+        hideProcessingWindow()
         updateTrayIcon('idle') // Reset even on failure
         return { ok: true, path: filename, autoTranscribed: true, error: tx && tx.error ? tx.error : 'transcription failed' }
       } catch (err) {
         console.error('Auto-transcription exception:', err)
+        hideProcessingWindow()
         updateTrayIcon('idle') // Reset even on error
         return { ok: true, path: filename, autoTranscribed: true, error: String(err) }
       }
     }
     console.log('Auto-transcribe disabled, returning saved path only')
+    hideProcessingWindow()
     updateTrayIcon('idle')
     return { ok: true, path: filename }
   } catch (err) {

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Processing</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      color: white;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      padding: 40px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      min-width: 400px;
+    }
+
+    /* Spinner */
+    .spinner {
+      width: 80px;
+      height: 80px;
+      position: relative;
+    }
+
+    .spinner-circle {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 6px solid rgba(255, 255, 255, 0.15);
+      border-top-color: #667eea;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Progress Circle (alternative to spinner) */
+    .progress-circle {
+      width: 120px;
+      height: 120px;
+      position: relative;
+      display: none; /* Hidden by default, can be shown instead of spinner */
+    }
+
+    .progress-circle svg {
+      transform: rotate(-90deg);
+      width: 100%;
+      height: 100%;
+    }
+
+    .progress-circle-bg {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.15);
+      stroke-width: 8;
+    }
+
+    .progress-circle-fill {
+      fill: none;
+      stroke: #667eea;
+      stroke-width: 8;
+      stroke-linecap: round;
+      stroke-dasharray: 339.292; /* 2 * PI * 54 */
+      stroke-dashoffset: 339.292;
+      transition: stroke-dashoffset 0.3s ease;
+    }
+
+    .progress-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 24px;
+      font-weight: 600;
+      color: white;
+    }
+
+    /* Status Text */
+    .status-text {
+      font-size: 18px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.95);
+      text-align: center;
+      min-height: 27px;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Sub-status (smaller details) */
+    .sub-status {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.6);
+      text-align: center;
+      min-height: 21px;
+    }
+
+    /* Progress Bar (alternative visualization) */
+    .progress-bar-container {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+      overflow: hidden;
+      display: none; /* Hidden by default */
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      width: 0%;
+      transition: width 0.3s ease;
+      border-radius: 3px;
+    }
+
+    /* Dots animation for indeterminate progress */
+    .dots {
+      display: inline-block;
+    }
+
+    .dots::after {
+      content: '';
+      animation: dots 1.5s steps(4, end) infinite;
+    }
+
+    @keyframes dots {
+      0%, 20% { content: ''; }
+      40% { content: '.'; }
+      60% { content: '..'; }
+      80%, 100% { content: '...'; }
+    }
+
+    /* Cancel button (bottom of overlay) */
+    .cancel-button {
+      margin-top: 8px;
+      padding: 8px 20px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .cancel-button:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: rgba(255, 255, 255, 0.9);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    .cancel-button:active {
+      transform: scale(0.98);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Spinner (default) -->
+    <div class="spinner">
+      <div class="spinner-circle"></div>
+    </div>
+
+    <!-- Progress Circle (alternative, hidden by default) -->
+    <div class="progress-circle" id="progressCircle">
+      <svg viewBox="0 0 120 120">
+        <circle class="progress-circle-bg" cx="60" cy="60" r="54"></circle>
+        <circle class="progress-circle-fill" cx="60" cy="60" r="54" id="progressCircleFill"></circle>
+      </svg>
+      <div class="progress-text" id="progressText">0%</div>
+    </div>
+
+    <!-- Status messages -->
+    <div class="status-text" id="statusText">Processing<span class="dots"></span></div>
+    <div class="sub-status" id="subStatus"></div>
+
+    <!-- Progress Bar (alternative, hidden by default) -->
+    <div class="progress-bar-container" id="progressBarContainer">
+      <div class="progress-bar-fill" id="progressBarFill"></div>
+    </div>
+
+    <!-- Cancel button -->
+    <button class="cancel-button" id="cancelButton">Cancel (Esc)</button>
+  </div>
+
+  <script>
+    const statusText = document.getElementById('statusText')
+    const subStatus = document.getElementById('subStatus')
+    const progressCircle = document.getElementById('progressCircle')
+    const progressCircleFill = document.getElementById('progressCircleFill')
+    const progressText = document.getElementById('progressText')
+    const progressBarContainer = document.getElementById('progressBarContainer')
+    const progressBarFill = document.getElementById('progressBarFill')
+    const cancelButton = document.getElementById('cancelButton')
+    const spinner = document.querySelector('.spinner')
+
+    // Mode: 'spinner', 'circle', or 'bar'
+    let currentMode = 'spinner'
+    let currentProgress = 0
+
+    // Status messages for different stages
+    const statusMessages = {
+      trimming: 'Trimming silence',
+      transcribing: 'Transcribing audio',
+      polishing: 'Polishing transcript',
+      finalizing: 'Finalizing',
+      processing: 'Processing'
+    }
+
+    // Update progress (0-100)
+    function updateProgress(percent, status = 'processing', subText = '') {
+      currentProgress = Math.max(0, Math.min(100, percent))
+
+      // Update status text
+      if (statusMessages[status]) {
+        statusText.innerHTML = statusMessages[status] + '<span class="dots"></span>'
+      } else {
+        statusText.textContent = status
+      }
+
+      // Update sub-status
+      subStatus.textContent = subText
+
+      // Update progress indicators based on mode
+      if (currentMode === 'circle') {
+        const circumference = 2 * Math.PI * 54
+        const offset = circumference - (currentProgress / 100) * circumference
+        progressCircleFill.style.strokeDashoffset = offset
+        progressText.textContent = Math.round(currentProgress) + '%'
+      } else if (currentMode === 'bar') {
+        progressBarFill.style.width = currentProgress + '%'
+      }
+    }
+
+    // Switch visualization mode
+    function setMode(mode) {
+      currentMode = mode
+      
+      // Hide all
+      spinner.style.display = 'none'
+      progressCircle.style.display = 'none'
+      progressBarContainer.style.display = 'none'
+
+      // Show selected
+      if (mode === 'spinner') {
+        spinner.style.display = 'block'
+      } else if (mode === 'circle') {
+        progressCircle.style.display = 'flex'
+        updateProgress(currentProgress)
+      } else if (mode === 'bar') {
+        progressBarContainer.style.display = 'block'
+        updateProgress(currentProgress)
+      }
+    }
+
+    // Cancel button handler
+    cancelButton.addEventListener('click', () => {
+      if (window.electronAPI && window.electronAPI.cancelTranscription) {
+        window.electronAPI.cancelTranscription()
+      }
+    })
+
+    // Escape key handler
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (window.electronAPI && window.electronAPI.cancelTranscription) {
+          window.electronAPI.cancelTranscription()
+        }
+      }
+    })
+
+    // Listen for progress updates from main process
+    if (window.electronAPI && window.electronAPI.onProcessingProgress) {
+      window.electronAPI.onProcessingProgress((data) => {
+        const { progress, status, subStatus: sub, mode } = data
+
+        // Switch mode if requested
+        if (mode && mode !== currentMode) {
+          setMode(mode)
+        }
+
+        // Update progress
+        if (typeof progress === 'number') {
+          updateProgress(progress, status || 'processing', sub || '')
+        } else {
+          // Indeterminate progress - just update text
+          if (statusMessages[status]) {
+            statusText.innerHTML = statusMessages[status] + '<span class="dots"></span>'
+          } else if (status) {
+            statusText.textContent = status
+          }
+          if (sub) {
+            subStatus.textContent = sub
+          }
+        }
+      })
+    }
+
+    // Listen for completion signal
+    if (window.electronAPI && window.electronAPI.onProcessingComplete) {
+      window.electronAPI.onProcessingComplete(() => {
+        // Window will be closed by main process
+      })
+    }
+
+    // Initialize with default message
+    updateProgress(0, 'processing', '')
+  </script>
+</body>
+</html>
