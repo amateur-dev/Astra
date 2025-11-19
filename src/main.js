@@ -362,6 +362,23 @@ app.on('will-quit', () => {
 
 ipcMain.handle('app-version', () => app.getVersion())
 
+// Check if Ollama is installed and running
+ipcMain.handle('check-ollama', async () => {
+  try {
+    const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434'
+    if (!fetch) {
+      return { installed: false, running: false, error: 'No fetch implementation available' }
+    }
+    const response = await fetch(`${ollamaUrl}/api/tags`, { 
+      method: 'GET',
+      signal: AbortSignal.timeout(2000) // 2 second timeout
+    })
+    return { installed: true, running: response.ok }
+  } catch (err) {
+    return { installed: false, running: false, error: String(err) }
+  }
+})
+
 // Settings persistence: store a transcription command template under key 'transcribe_cmd'
 ipcMain.handle('get-settings', () => {
   const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || ''

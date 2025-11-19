@@ -3,7 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('electronAPI', {
   onRecordToggle: (cb) => ipcRenderer.on('record-toggle', (event, state) => cb(state)),
   onLivePatch: (cb) => ipcRenderer.on('live-patch', (event, patch) => cb(patch)),
-  getAppVersion: () => ipcRenderer.invoke('app-version')
+  getAppVersion: () => ipcRenderer.invoke('app-version'),
+  checkOllama: () => ipcRenderer.invoke('check-ollama')
   ,
   saveRecording: (uint8Array) => ipcRenderer.invoke('save-recording', uint8Array)
   ,
