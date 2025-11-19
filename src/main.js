@@ -54,6 +54,7 @@ let processingWindow = null
 let transcriptWindow = null
 let tray = null
 let isRecording = false
+let isCancelled = false
 // Live mock state per renderer sender (used for incremental patch simulation)
 const liveMockState = {}
 
@@ -122,12 +123,13 @@ function createRecordingWindow () {
   recordingWindow = new BrowserWindow({
     width: 320,
     height: 160,
+    type: 'panel', // Helps with floating behavior
     frame: false,
     transparent: true,
     alwaysOnTop: true,
     resizable: false,
     skipTaskbar: true,
-    visibleOnAllWorkspaces: true, // Stay visible across all desktops/spaces
+    visibleOnAllWorkspaces: false, // We set this explicitly below with options
     fullscreenable: false,
     focusable: false, // Prevent stealing focus from current app
     webPreferences: {
@@ -142,6 +144,8 @@ function createRecordingWindow () {
   // Set window level to float above fullscreen apps on macOS
   // 'screen-saver' is the highest level and should appear above everything
   recordingWindow.setAlwaysOnTop(true, 'screen-saver')
+  // Crucial for appearing over fullscreen apps without switching spaces
+  recordingWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   
   // Position on the screen where the cursor currently is (supports multi-monitor and fullscreen apps)
   const { screen } = require('electron')
@@ -306,6 +310,11 @@ function registerHotkey (hotkey) {
       
       // Show/hide recording window and update tray icon
       if (isRecording) {
+        // Register Escape key to cancel recording
+        globalShortcut.register('Escape', () => {
+          handleCancelRecording()
+        })
+
         // Hide main window when recording starts
         if (mainWindow && mainWindow.isVisible()) {
           mainWindow.hide()
@@ -317,6 +326,9 @@ function registerHotkey (hotkey) {
           recordingWindow.webContents.send('recording-start')
         }
       } else {
+        // Unregister Escape key
+        globalShortcut.unregister('Escape')
+
         // Keep recording window visible, just change its state to processing
         updateTrayIcon('processing') // Will change to idle after transcription completes
         // Notify recording window to switch to processing mode
@@ -355,6 +367,10 @@ function registerHotkey (hotkey) {
 }
 
 app.whenReady().then(() => {
+  // Hide from dock to prevent space switching when app is active
+  if (process.platform === 'darwin') {
+    app.dock.hide()
+  }
   createWindow()
   createTray()
 
@@ -475,18 +491,28 @@ ipcMain.handle('set-hotkey', async (event, hotkey) => {
   }
 })
 
-// Recording window handlers
-ipcMain.handle('cancel-recording', async () => {
+// Helper to handle recording cancellation
+async function handleCancelRecording() {
   try {
+    console.log('Cancelling recording...')
+    isCancelled = true
     isRecording = false
+    globalShortcut.unregister('Escape') // Unregister Escape shortcut
     hideRecordingWindow()
+    updateTrayIcon('idle')
     if (mainWindow && mainWindow.webContents) {
       mainWindow.webContents.send('record-toggle', false)
     }
     return { ok: true }
   } catch (err) {
+    console.error('handleCancelRecording error:', err)
     return { ok: false, error: String(err) }
   }
+}
+
+// Recording window handlers
+ipcMain.handle('cancel-recording', async () => {
+  return handleCancelRecording()
 })
 
 ipcMain.handle('is-recording', async () => {
@@ -653,6 +679,15 @@ ipcMain.handle('paste-into-front', async (event, text) => {
 // Save a recording sent from renderer (Uint8Array) to a temp file and return its path
 ipcMain.handle('save-recording', async (event, uint8Array) => {
   try {
+    // Check if recording was cancelled
+    if (isCancelled) {
+      console.log('Recording was cancelled, discarding data')
+      isCancelled = false // Reset flag
+      hideRecordingWindow()
+      updateTrayIcon('idle')
+      return { ok: true, cancelled: true }
+    }
+
     const buffer = Buffer.from(uint8Array)
     // If the incoming buffer looks like WAV (RIFF), name it as .wav; otherwise use .webm
     const isWav = buffer.length >= 4 && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46
