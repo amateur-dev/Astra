@@ -129,6 +129,7 @@ function createRecordingWindow () {
     skipTaskbar: true,
     visibleOnAllWorkspaces: true, // Stay visible across all desktops/spaces
     fullscreenable: false,
+    focusable: false, // Prevent stealing focus from current app
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -138,14 +139,15 @@ function createRecordingWindow () {
   
   recordingWindow.loadFile(path.join(__dirname, 'renderer', 'recording-window.html'))
   
-  // Center on screen
+  // Position on the screen where the cursor currently is (supports multi-monitor and fullscreen apps)
   const { screen } = require('electron')
-  const primaryDisplay = screen.getPrimaryDisplay()
-  const { width, height } = primaryDisplay.workAreaSize
+  const cursorPoint = screen.getCursorScreenPoint()
+  const currentDisplay = screen.getDisplayNearestPoint(cursorPoint)
+  const { x, y, width, height } = currentDisplay.workArea
   const winBounds = recordingWindow.getBounds()
   recordingWindow.setPosition(
-    Math.floor((width - winBounds.width) / 2),
-    Math.floor((height - winBounds.height) / 3)
+    x + Math.floor((width - winBounds.width) / 2),
+    y + Math.floor((height - winBounds.height) / 3)
   )
   
   recordingWindow.on('closed', () => {
@@ -156,8 +158,10 @@ function createRecordingWindow () {
 function showRecordingWindow () {
   if (!recordingWindow) {
     createRecordingWindow()
-  } else {
-    recordingWindow.show()
+  }
+  // Use showInactive() to display without stealing focus from current app
+  if (recordingWindow) {
+    recordingWindow.showInactive()
   }
 }
 
