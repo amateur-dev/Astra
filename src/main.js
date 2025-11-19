@@ -5,6 +5,8 @@ const os = require('os')
 const { exec } = require('child_process')
 const Store = require('electron-store')
 const store = new Store()
+// Suggested recommended default transcription command (does NOT overwrite user settings)
+const SUGGESTED_TRANSCRIBE_CMD = `whisper-cli -m models/ggml-small.en.bin -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -otxt -`
 
 // Resolve a usable `fetch` in the main process.
 // Prefer a built-in/global fetch (available in newer Node/Electron), then try
@@ -93,16 +95,49 @@ function createTray () {
   tray.setContextMenu(contextMenu)
 }
 
+function registerHotkey (hotkey) {
+  try {
+    // Remove any existing shortcut
+    globalShortcut.unregisterAll()
+    if (!hotkey) {
+      // empty hotkey: unregister and return success
+      try { store.delete('hotkey') } catch (e) {}
+      console.log('Hotkey cleared')
+      return true
+    }
+    const ok = globalShortcut.register(hotkey, () => {
+      console.log('Hotkey pressed:', hotkey, 'current isRecording:', isRecording)
+      isRecording = !isRecording
+      console.log('Toggled isRecording to:', isRecording)
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.send('record-toggle', isRecording)
+        console.log('Sent record-toggle event to renderer')
+      } else {
+        console.warn('mainWindow not available to send record-toggle')
+      }
+    })
+    console.log(`Hotkey registration for '${hotkey}': ${ok ? 'SUCCESS' : 'FAILED'}`)
+    return ok
+  } catch (e) {
+    console.error('registerHotkey error', e)
+    return false
+  }
+}
+
 app.whenReady().then(() => {
   createWindow()
   createTray()
 
   // register a simple global shortcut: Cmd+Shift+V to toggle recording
-  const ret = globalShortcut.register('CommandOrControl+Shift+V', () => {
-    isRecording = !isRecording
-    mainWindow.webContents.send('record-toggle', isRecording)
-  })
-  if (!ret) console.log('Global shortcut registration failed')
+  // Get stored hotkey or default
+  const savedHotkey = store.get('hotkey') || process.env.HOTKEY || 'CommandOrControl+Shift+V'
+  console.log('Attempting to register hotkey:', savedHotkey)
+  const ret = registerHotkey(savedHotkey)
+  if (!ret) {
+    console.error('ERROR: Global shortcut registration failed for hotkey:', savedHotkey)
+  } else {
+    console.log('Global shortcut registered successfully:', savedHotkey)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -118,15 +153,26 @@ ipcMain.handle('app-version', () => app.getVersion())
 // Settings persistence: store a transcription command template under key 'transcribe_cmd'
 ipcMain.handle('get-settings', () => {
   const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || ''
-  const auto = store.get('auto_transcribe') === true
+  // Default auto_transcribe to true if not explicitly set to false
+  const auto = store.get('auto_transcribe') !== false
   const ffmpegPath = store.get('ffmpeg_path') || ''
   const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434'
   const ollamaModel = store.get('ollama_model') || 'llama3.2'
   const ollamaEnabled = store.get('ollama_enabled') === true
-  const autoPaste = store.get('auto_paste') === true
-  return { 
-    transcribe_cmd: tpl, 
+  // Default auto_paste to true if not explicitly set to false
+  const autoPaste = store.get('auto_paste') !== false
+  const polishWhileTranscribe = store.get('polish_while_transcribe') === true
+  // Suggested default command (does not overwrite user setting). This
+  // uses a local `whisper-cli` with the small model and conservative
+  // decoding flags that produced the best observed WER in experiments.
+  const suggested_transcribe_cmd = `whisper-cli -m models/ggml-small.en.bin -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -otxt -`
+
+  return {
+    transcribe_cmd: tpl,
+    suggested_transcribe_cmd,
+    hotkey: store.get('hotkey') || process.env.HOTKEY || 'CommandOrControl+Shift+V',
     auto_transcribe: auto,
+    polish_while_transcribe: polishWhileTranscribe,
     ffmpeg_path: ffmpegPath,
     ollama_url: ollamaUrl,
     ollama_model: ollamaModel,
@@ -140,12 +186,43 @@ ipcMain.handle('save-settings', (event, settings) => {
     if (!settings || typeof settings !== 'object') return { ok: false, error: 'Invalid settings' }
     if (typeof settings.transcribe_cmd === 'string') store.set('transcribe_cmd', settings.transcribe_cmd)
     if (typeof settings.auto_transcribe === 'boolean') store.set('auto_transcribe', settings.auto_transcribe)
+    if (typeof settings.polish_while_transcribe === 'boolean') store.set('polish_while_transcribe', settings.polish_while_transcribe)
   if (typeof settings.ffmpeg_path === 'string') store.set('ffmpeg_path', settings.ffmpeg_path)
     if (typeof settings.ollama_url === 'string') store.set('ollama_url', settings.ollama_url)
     if (typeof settings.ollama_model === 'string') store.set('ollama_model', settings.ollama_model)
     if (typeof settings.ollama_enabled === 'boolean') store.set('ollama_enabled', settings.ollama_enabled)
     if (typeof settings.auto_paste === 'boolean') store.set('auto_paste', settings.auto_paste)
+    if (typeof settings.hotkey === 'string' && settings.hotkey.trim().length > 0) {
+      const hk = settings.hotkey.trim()
+      // Attempt to register; if success, save
+      try {
+        const ok = registerHotkey(hk)
+        if (ok) store.set('hotkey', hk)
+        else return { ok: false, error: 'Hotkey registration failed. Try a different combination.' }
+      } catch (e) {
+        return { ok: false, error: 'Hotkey registration failed: ' + String(e) }
+      }
+    }
     return { ok: true }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
+ipcMain.handle('set-hotkey', async (event, hotkey) => {
+  try {
+    if (hotkey === '' || hotkey === null) {
+      // clear hotkey
+      registerHotkey('')
+      store.delete('hotkey')
+      return { ok: true, hotkey: '' }
+    }
+    if (!hotkey || typeof hotkey !== 'string') return { ok: false, error: 'Invalid hotkey' }
+    const hk = hotkey.trim()
+    const ok = registerHotkey(hk)
+    if (!ok) return { ok: false, error: 'Hotkey registration failed' }
+    store.set('hotkey', hk)
+    return { ok: true, hotkey: hk }
   } catch (err) {
     return { ok: false, error: String(err) }
   }
@@ -287,13 +364,29 @@ ipcMain.handle('paste-into-front', async (event, text) => {
 ipcMain.handle('save-recording', async (event, uint8Array) => {
   try {
     const buffer = Buffer.from(uint8Array)
-    const filename = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.webm`)
+    // If the incoming buffer looks like WAV (RIFF), name it as .wav; otherwise use .webm
+    const isWav = buffer.length >= 4 && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46
+    const ext = isWav ? 'wav' : 'webm'
+    const filename = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.${ext}`)
     await fs.promises.writeFile(filename, buffer)
-    // If auto_transcribe is enabled in settings, run transcription now and return transcript
-    const auto = store.get('auto_transcribe') === true
+    console.log('Saved recording to:', filename)
+    // If auto_transcribe is enabled in settings (defaults to true), run transcription now and return transcript
+    const auto = store.get('auto_transcribe') !== false
+    console.log('Auto-transcribe enabled:', auto)
     if (auto) {
       try {
-        const tx = await transcribeWebm(filename)
+        console.log('Starting auto-transcription...')
+        let tx = null
+        // If the file is a WAV, call transcribeWav directly; else transcribeWebm
+        const fileIsWav = buffer.length >= 4 && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46
+        if (fileIsWav) {
+          console.log('Transcribing WAV file...')
+          tx = await transcribeWav(filename)
+        } else {
+          console.log('Transcribing WebM file...')
+          tx = await transcribeWebm(filename)
+        }
+        console.log('Transcription result:', tx)
         if (tx && tx.ok) {
           // Check if Ollama polishing is enabled
           const ollamaEnabled = store.get('ollama_enabled') === true
@@ -305,30 +398,16 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           let polishErrors = null
           
           // Only attempt polishing if there is non-empty transcript text
-          if (ollamaEnabled && tx.text && String(tx.text).trim().length > 0) {
-            try {
-              const polished = await polishWithOllama(tx.text)
-              if (polished && polished.ok) {
-                finalText = polished.text
-                // include metadata about polishing
-                polishUsed = polished.used || null
-                polishTried = polished.tried || null
-                polishErrors = polished.errors || null
-              } else {
-                polishError = polished && polished.error ? polished.error : 'Ollama polish failed'
-                polishTried = polished && polished.tried ? polished.tried : null
-                polishErrors = polished && polished.errors ? polished.errors : null
-              }
-            } catch (err) {
-              polishError = String(err)
-            }
-          }
+            // Do not auto-polish with Ollama during save-recording auto-transcribe.
+            // Keep polish optional and on-demand: use explicit 'polish-transcript' IPC.
           // Clean the final text (strip timestamps/caveat) before any further actions
           finalText = cleanTranscript(finalText)
+          console.log('Final cleaned text:', finalText)
 
           // If auto_paste is enabled, attempt to paste the final text into the front app
           let pasteResult = null
-          const autoPaste = store.get('auto_paste') === true
+          const autoPaste = store.get('auto_paste') !== false
+          console.log('Auto-paste enabled:', autoPaste)
           if (autoPaste && finalText) {
             try {
               try { clipboard.writeText(finalText) } catch (e) { /* ignore */ }
@@ -358,11 +437,14 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
             wav: tx.wav 
           }
         }
+        console.error('Transcription failed or returned no data:', tx)
         return { ok: true, path: filename, autoTranscribed: true, error: tx && tx.error ? tx.error : 'transcription failed' }
       } catch (err) {
+        console.error('Auto-transcription exception:', err)
         return { ok: true, path: filename, autoTranscribed: true, error: String(err) }
       }
     }
+    console.log('Auto-transcribe disabled, returning saved path only')
     return { ok: true, path: filename }
   } catch (err) {
     console.error('Failed to save recording:', err)
@@ -484,16 +566,8 @@ async function runRollingTranscription (senderId, sender) {
   if (tx && tx.ok) finalText = tx.text || ''
   else if (tx && tx.error) finalText = `⚠ Transcribe error: ${String(tx.error).slice(0,200)}`
 
-    // Optionally run Ollama polishing if enabled
-    try {
-      const ollamaEnabled = store.get('ollama_enabled') === true
-      if (ollamaEnabled && finalText && finalText.trim().length > 0) {
-        const polished = await polishWithOllama(finalText)
-        if (polished && polished.ok && polished.text) finalText = polished.text
-      }
-    } catch (e) {
-      console.warn('Ollama polish failed', e)
-    }
+    // Don't auto-polish rolling transcription. Keep polishing opt-in; polishing
+    // can be invoked by the renderer via 'polish-transcript' if needed.
 
     // Compare and emit patch if different
     if (String(finalText || '').trim() !== String(state.prevTranscript || '').trim()) {
@@ -515,7 +589,7 @@ async function runRollingTranscription (senderId, sender) {
 }
 
 // Transcribe the given webm file: convert to WAV with ffmpeg, then run a configured transcription command.
-ipcMain.handle('transcribe', async (event, webmPath) => {
+ipcMain.handle('transcribe', async (event, webmPath, options = {}) => {
   try {
     if (!webmPath || typeof webmPath !== 'string') return { ok: false, error: 'Invalid path' }
     // ensure ffmpeg exists
@@ -523,7 +597,7 @@ ipcMain.handle('transcribe', async (event, webmPath) => {
     // create wav path
     const wavPath = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.wav`)
     // delegate to shared helper
-    const tx = await transcribeWebm(webmPath)
+    const tx = await transcribeWebm(webmPath, options)
     return tx
   } catch (err) {
     console.error('transcribe handler error', err)
@@ -531,17 +605,33 @@ ipcMain.handle('transcribe', async (event, webmPath) => {
   }
 })
 
+// Explicit on-demand polish for a transcript using Ollama.
+ipcMain.handle('polish-transcript', async (event, text, options = {}) => {
+  try {
+    if (!text || String(text).trim().length === 0) return { ok: false, error: 'No text to polish' }
+    const held = await polishWithOllama(text)
+    if (held && held.ok) return { ok: true, text: held.text, used: held.used, tried: held.tried }
+    return { ok: false, error: held && held.error ? held.error : 'polish failed', tried: held && held.tried ? held.tried : null }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
 // helper: convert webm -> wav and run configured transcription command template
-async function transcribeWebm (webmPath) {
+async function transcribeWebm (webmPath, options = {}) {
   try {
     // find ffmpeg executable (bundled, user-configured, or system)
     const ffmpegCmd = await findFfmpeg()
     const wavPath = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.wav`)
+    let finalWav = wavPath
     if (!ffmpegCmd) {
       return { ok: false, error: 'ffmpeg not found. Install ffmpeg (Homebrew: `brew install ffmpeg`) or bundle ffmpeg in the app.' }
     }
     await new Promise((resolve, reject) => {
-      const cmd = `${JSON.stringify(ffmpegCmd)} -y -i ${JSON.stringify(webmPath)} -ar 16000 -ac 1 ${JSON.stringify(wavPath)}`
+      // Convert and apply a lightweight silence-trim filter to remove long
+      // leading/trailing pauses which can confuse the decoder. This reduces
+      // total decoder time and hallucinations.
+      const cmd = `${JSON.stringify(ffmpegCmd)} -y -i ${JSON.stringify(webmPath)} -af "silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB:stop_periods=1:stop_duration=0.5:stop_threshold=-50dB" -ar 16000 -ac 1 -sample_fmt s16 ${JSON.stringify(wavPath)}`
       exec(cmd, (err, stdout, stderr) => {
         if (err) {
           console.error('ffmpeg failed', err, stderr)
@@ -551,12 +641,12 @@ async function transcribeWebm (webmPath) {
       })
     })
 
-    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || null
+    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || SUGGESTED_TRANSCRIBE_CMD
     if (!tpl) {
       return { ok: false, error: 'No transcription command configured. Set TRANSCRIBE_CMD env variable or save settings in app.' }
     }
 
-    const cmd = tpl.replace(/{wav}/g, JSON.stringify(wavPath))
+    const cmd = tpl.replace(/{wav}/g, JSON.stringify(finalWav))
 
     const transcript = await new Promise((resolve, reject) => {
       exec(cmd, { maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
@@ -581,6 +671,19 @@ async function transcribeWebm (webmPath) {
     } else {
       finalText = ''
     }
+    // If options.polishNow, perform an on-demand Ollama polish and include under `polished` key
+    if (options && options.polishNow === true) {
+      try {
+        const polished = await polishWithOllama(finalText)
+        if (polished && polished.ok) {
+          return { ok: true, text: finalText, raw: transcript, wav: wavPath, polished: polished.text, polishedUsed: polished.used }
+        } else {
+          return { ok: true, text: finalText, raw: transcript, wav: wavPath, polished: null, polishedError: polished && polished.error ? polished.error : 'unknown' }
+        }
+      } catch (err) {
+        return { ok: true, text: finalText, raw: transcript, wav: wavPath, polished: null, polishedError: String(err) }
+      }
+    }
     return { ok: true, text: finalText, raw: transcript, wav: wavPath }
   } catch (err) {
     console.error('transcribeWebm error', err)
@@ -589,14 +692,42 @@ async function transcribeWebm (webmPath) {
 }
 
 // helper: run transcription on an existing WAV file with configured transcription command
-async function transcribeWav (wavPath) {
+async function transcribeWav (wavPath, options = {}) {
   try {
     if (!wavPath || typeof wavPath !== 'string') return { ok: false, error: 'Invalid wav path' }
-    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || null
+    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || SUGGESTED_TRANSCRIBE_CMD
+    console.log('Transcribe command template:', tpl)
     if (!tpl) {
       return { ok: false, error: 'No transcription command configured. Set TRANSCRIBE_CMD env variable or save settings in app.' }
     }
-    const cmd = tpl.replace(/{wav}/g, JSON.stringify(wavPath))
+    // If ffmpeg is available, create a trimmed temporary WAV to avoid
+    // passing long silences to the decoder which can reduce accuracy.
+    let finalWav = wavPath
+    try {
+      const ffmpegCmd = await findFfmpeg()
+      console.log('FFmpeg command:', ffmpegCmd)
+      if (ffmpegCmd) {
+        const trimmed = path.join(os.tmpdir(), `voicehotkey-trimmed-${Date.now()}.wav`)
+        // Use silenceremove to drop long leading/trailing silence.
+        await new Promise((resolve, reject) => {
+          const cmd = `${JSON.stringify(ffmpegCmd)} -y -i ${JSON.stringify(wavPath)} -af "silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB:stop_periods=1:stop_duration=0.5:stop_threshold=-50dB" -ar 16000 -ac 1 -sample_fmt s16 ${JSON.stringify(trimmed)}`
+          console.log('FFmpeg trim command:', cmd)
+          exec(cmd, (err, stdout, stderr) => {
+            if (err) return reject(new Error('ffmpeg trim failed: ' + (stderr || err.message)))
+            resolve()
+          })
+        })
+        finalWav = trimmed
+        console.log('Trimmed WAV created:', trimmed)
+      }
+    } catch (e) {
+      // If trimming fails, fall back to original WAV
+      console.warn('silence trim failed, proceeding with original WAV', e)
+      finalWav = wavPath
+    }
+
+    const cmd = tpl.replace(/{wav}/g, JSON.stringify(finalWav))
+    console.log('Executing transcription command:', cmd)
     const transcript = await new Promise((resolve, reject) => {
       exec(cmd, { maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (err) {
@@ -611,6 +742,15 @@ async function transcribeWav (wavPath) {
     if (cleaned && String(cleaned).trim().length > 0) finalText = cleaned
     else if (transcript && String(transcript).trim().length > 0) finalText = transcript
     else finalText = ''
+    if (options && options.polishNow === true) {
+      try {
+        const polished = await polishWithOllama(finalText)
+        if (polished && polished.ok) return { ok: true, text: finalText, raw: transcript, wav: wavPath, polished: polished.text, polishedUsed: polished.used }
+        return { ok: true, text: finalText, raw: transcript, wav: wavPath, polished: null, polishedError: polished && polished.error ? polished.error : 'unknown' }
+      } catch (err) {
+        return { ok: true, text: finalText, raw: transcript, wav: wavPath, polished: null, polishedError: String(err) }
+      }
+    }
     return { ok: true, text: finalText, raw: transcript, wav: wavPath }
   } catch (err) {
     console.error('transcribeWav error', err)
@@ -701,15 +841,18 @@ async function polishWithOllama (text) {
 function cleanTranscript (text) {
   try {
     if (!text || typeof text !== 'string') return text
-    // Split into lines and drop lines that look like timestamps or are empty
-    const rawLines = text.split(/\r?\n/)
+    // First, remove timestamp patterns like [00:00:00.000 --> 00:00:07.000] from the text
+    // This handles both inline timestamps and standalone timestamp lines
+    let cleaned = text.replace(/\[\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?\s*-->\s*\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?\]/g, '')
+    // Also remove standalone timestamp patterns without brackets
+    cleaned = cleaned.replace(/\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?\s*-->\s*\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?/g, '')
+    
+    // Split into lines and clean each line
+    const rawLines = cleaned.split(/\r?\n/)
     const lines = []
     for (let i = 0; i < rawLines.length; i++) {
       let line = rawLines[i].trim()
       if (!line) continue
-      // If the line contains a timestamp pattern like 00:00:00 or 00:00:00.000 or an arrow -->, drop it
-      if (/\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?/.test(line)) continue
-      if (/-->|→/.test(line)) continue
       // Remove common bullet markers
       line = line.replace(/^\s*[-*•]\s+/, '')
       // If this line starts the caveat about changes, stop processing further lines

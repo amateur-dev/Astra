@@ -59,6 +59,20 @@ function getTranscriptElement (createIfMissing) {
     copyBtn.className = 'btn'
     copyBtn.textContent = 'Copy'
     toolbar.appendChild(copyBtn)
+    // Polish (Ollama) button - hidden by default (enabled if user has Ollama configured)
+    const polishBtn = document.createElement('button')
+    polishBtn.id = 'polishBtn'
+    polishBtn.className = 'btn'
+    polishBtn.textContent = 'Polish (Ollama)'
+    polishBtn.style.display = 'none'
+    toolbar.appendChild(polishBtn)
+    // Toggle: Raw / Polished
+    const toggleBtn = document.createElement('button')
+    toggleBtn.id = 'toggleRawBtn'
+    toggleBtn.className = 'btn'
+    toggleBtn.textContent = 'Show Raw'
+    toggleBtn.style.display = 'none'
+    toolbar.appendChild(toggleBtn)
 
     container.appendChild(h3)
     container.appendChild(pre)
@@ -87,6 +101,50 @@ function getTranscriptElement (createIfMissing) {
         setTimeout(() => { copyBtn.textContent = 'Copy' }, 1200)
       } catch (e) {
         console.warn('copy failed', e)
+      }
+    })
+
+    // polish handler: call main IPC to polish transcript on-demand
+    polishBtn.addEventListener('click', async () => {
+      const t = document.getElementById('transcript')
+      if (!t) return
+      const text = t.textContent || ''
+      if (!text) return
+      polishBtn.disabled = true
+      polishBtn.textContent = 'Polishing...'
+      try {
+        const r = await window.electronAPI.polishTranscript(text)
+        if (r && r.ok && r.text) {
+          // store polished in dataset
+          t.dataset.rawText = t.textContent || ''
+          t.dataset.polishedText = r.text
+          t.textContent = r.text
+          toggleBtn.style.display = 'inline-block'
+          toggleBtn.textContent = 'Show Raw'
+        } else {
+          alert('Polish failed: ' + (r && r.error ? r.error : 'unknown'))
+        }
+      } catch (err) {
+        console.error('polishTranscript failed', err)
+        alert('Polish failed: ' + err)
+      } finally {
+        polishBtn.disabled = false
+        polishBtn.textContent = 'Polish (Ollama)'
+      }
+    })
+
+    // toggle handler
+    toggleBtn.addEventListener('click', () => {
+      const t = document.getElementById('transcript')
+      if (!t) return
+      const raw = t.dataset.rawText || ''
+      const polished = t.dataset.polishedText || ''
+      if (toggleBtn.textContent === 'Show Raw') {
+        if (raw) t.textContent = raw
+        toggleBtn.textContent = 'Show Polished'
+      } else {
+        if (polished) t.textContent = polished
+        toggleBtn.textContent = 'Show Raw'
       }
     })
 
@@ -165,12 +223,33 @@ btn.addEventListener('click', () => toggleRecording())
 
 async function startRecording () {
   try {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-  currentStream = stream
-  mediaRecorder = new MediaRecorder(stream)
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 48000, channelCount: 1, noiseSuppression: false, echoCancellation: false, autoGainControl: false } })
+    currentStream = stream
     chunks = []
-    mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data) }
-    mediaRecorder.onstop = async () => {
+    // Prefer AudioContext PCM capture so we can write a clean 16-bit WAV.
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+      sourceNode = audioCtx.createMediaStreamSource(stream)
+      processorNode = audioCtx.createScriptProcessor(4096, 1, 1)
+      pcmBuffer = []
+      processorNode.onaudioprocess = (ev) => {
+        try {
+          const ch = ev.inputBuffer.getChannelData(0)
+          pcmBuffer.push(new Float32Array(ch))
+        } catch (e) { console.warn('processor error', e) }
+      }
+      sourceNode.connect(processorNode)
+      processorNode.connect(audioCtx.destination)
+      mediaRecorder = null
+    } catch (e) {
+      // Fallback to MediaRecorder (webm) if AudioContext capture fails
+      console.warn('AudioContext capture failed; falling back to MediaRecorder', e)
+      mediaRecorder = new MediaRecorder(stream)
+    }
+    chunks = []
+    if (mediaRecorder) {
+      mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data) }
+      mediaRecorder.onstop = async () => {
       // If no chunks were captured, the user likely denied microphone access
       // or the stream had no data. Show a clear status and skip saving.
       if (!chunks || chunks.length === 0) {
@@ -236,7 +315,8 @@ async function startRecording () {
         btn.disabled = false
       }
     }
-    mediaRecorder.start()
+      mediaRecorder.start()
+    }
     recording = true
     status.textContent = 'Recording...'
     btn.textContent = 'Stop Recording'
@@ -246,35 +326,118 @@ async function startRecording () {
   }
 }
 
-function stopRecording () {
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    // stop tracks immediately to release microphone indicator
-    try {
-      if (currentStream) {
-        currentStream.getTracks().forEach(t => {
-          try { t.stop() } catch (e) { /* ignore */ }
-        })
-        currentStream = null
-      }
-    } catch (e) {
-      console.warn('Error stopping media tracks', e)
-    }
-    mediaRecorder.stop()
-  }
+async function stopRecording () {
+  // Update UI immediately
   recording = false
   status.textContent = 'Stopping...'
   btn.textContent = 'Start Recording'
+  
+  // Stop the media stream tracks first
+  try {
+    if (currentStream) {
+      currentStream.getTracks().forEach(t => {
+        try { t.stop() } catch (e) { /* ignore */ }
+      })
+      currentStream = null
+    }
+  } catch (e) {
+    console.warn('Error stopping media tracks', e)
+  }
+  
+  // If we are capturing via MediaRecorder, stop it (onstop handler will process)
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop()
+    // MediaRecorder's onstop handler will handle the rest
+    return
+  }
+  
+  // If we engaged AudioContext PCM capture, flush buffer and send WAV
+  if (audioCtx) {
+    try {
+      // Disconnect and clean up AudioContext resources
+      if (processorNode) {
+        processorNode.disconnect()
+        if (sourceNode) sourceNode.disconnect()
+        processorNode = null
+        sourceNode = null
+      }
+      if (audioCtx.state !== 'closed') {
+        await audioCtx.close()
+      }
+      audioCtx = null
+      
+      // Process captured PCM data if any
+      if (pcmBuffer && pcmBuffer.length > 0) {
+        // merge Float32Array parts
+        const totalLen = pcmBuffer.reduce((s, a) => s + a.length, 0)
+        const merged = new Float32Array(totalLen)
+        let offset = 0
+        for (const part of pcmBuffer) { merged.set(part, offset); offset += part.length }
+        const sampleRate = 48000 // we requested 48kHz
+        pcmBuffer = []
+        const wavBytes = encodeWAV(merged, sampleRate)
+        // send WAV bytes to main to save
+        status.textContent = 'Saving...'
+        try {
+          const result = await window.electronAPI.saveRecording(wavBytes)
+          if (result && result.ok) {
+            status.textContent = `Saved: ${result.path}`
+            const transBtn = document.getElementById('transcribeBtn')
+            if (transBtn) { transBtn.disabled = false; transBtn.dataset.path = result.path }
+            if (result.autoTranscribed && result.text) {
+              const transcriptEl = getTranscriptElement(true)
+              if (transcriptEl) {
+                transcriptEl.textContent = result.text || '(empty)'
+                transcriptEl.style.display = 'block'
+              }
+              // enable paste button when transcript appears
+              const pasteBtn = document.getElementById('pasteBtn')
+              if (pasteBtn) pasteBtn.disabled = false
+              let statusMsg = `Auto-transcribed (wav: ${result.wav || 'unknown'})`
+              if (result.originalText && result.originalText !== result.text) {
+                statusMsg += ' [Polished by Ollama]'
+              }
+              if (result.polishError) {
+                statusMsg += ` [Polish error: ${result.polishError}]`
+              }
+              status.textContent = statusMsg
+            }
+          } else {
+            status.textContent = `Save failed: ${result && result.error ? result.error : 'unknown'}`
+          }
+        } catch (err) {
+          console.error('saveRecording failed', err)
+          status.textContent = 'Save failed: ' + err
+        }
+      } else {
+        status.textContent = 'No audio captured'
+      }
+    } catch (e) {
+      console.error('stopRecording cleanup failed', e)
+      status.textContent = 'Error stopping recording'
+    }
+  } else {
+    status.textContent = 'Ready'
+  }
 }
 
-function toggleRecording () {
-  if (!recording) startRecording()
-  else stopRecording()
+async function toggleRecording () {
+  if (!recording) await startRecording()
+  else await stopRecording()
 }
 
-window.electronAPI.onRecordToggle((state) => {
+window.electronAPI.onRecordToggle(async (state) => {
   // hotkey toggles recording state in main; reflect in UI
-  if (state && !recording) startRecording()
-  else if (!state && recording) stopRecording()
+  console.log('onRecordToggle received, state:', state, 'current recording:', recording)
+  if (state && !recording) {
+    console.log('Starting recording from hotkey')
+    await startRecording()
+  } else if (!state && recording) {
+    console.log('Stopping recording from hotkey')
+    await stopRecording()
+  } else {
+    console.log('No action taken - state/recording mismatch or already in desired state')
+  }
 })
 
 // Apply live patches sent from main (rolling transcription)
@@ -447,9 +610,26 @@ window.electronAPI.onRecordToggle((state) => {
   const _tHide = getTranscriptElement(false)
   if (_tHide) _tHide.style.display = 'none'
       try {
-      const r = await window.electronAPI.transcribeFile(p)
+        // Check settings for polishNow behavior
+        const settings = await window.electronAPI.getSettings()
+        const polishNow = settings && settings.polish_while_transcribe === true
+        const r = await window.electronAPI.transcribeFile(p, { polishNow })
       if (r && r.ok) {
         const tEl = getTranscriptElement(true)
+        // store raw and cleaned versions for toggling and polishing
+        if (tEl) {
+          tEl.dataset.rawText = r.raw || ''
+          tEl.dataset.cleanedText = r.text || ''
+          // show polish option if Ollama enabled in settings
+          try {
+            const settings = await window.electronAPI.getSettings()
+            const ollamaEnabledLocal = settings && settings.ollama_enabled === true
+            const polishBtnLocal = document.getElementById('polishBtn')
+            if (polishBtnLocal) polishBtnLocal.style.display = ollamaEnabledLocal ? 'inline-block' : 'none'
+            const toggleBtnLocal = document.getElementById('toggleRawBtn')
+            if (toggleBtnLocal) toggleBtnLocal.style.display = 'none'
+          } catch (e) { /* ignore */ }
+        }
         if (r.text && String(r.text).trim().length > 0) {
           status.textContent = `Transcribed (wav: ${r.wav})`
           if (tEl) {
@@ -542,6 +722,8 @@ window.electronAPI.onRecordToggle((state) => {
   const ollamaEnabled = r && r.ollama_enabled === true
   const autoPaste = r && r.auto_paste === true
   const ffmpegPath = r && r.ffmpeg_path ? r.ffmpeg_path : ''
+  const hotkey = r && r.hotkey ? r.hotkey : (process.env.HOTKEY || 'CommandOrControl+Shift+V')
+  const suggestedCmd = r && r.suggested_transcribe_cmd ? r.suggested_transcribe_cmd : ''
       
       // try to split into binary and model if possible
       const whisperBin = document.getElementById('whisperBin')
@@ -567,6 +749,34 @@ window.electronAPI.onRecordToggle((state) => {
       // ffmpeg path
       const ffmpegInput = document.getElementById('ffmpegPath')
       if (ffmpegInput) ffmpegInput.value = ffmpegPath
+      const hotkeyInput = document.getElementById('hotkeyInput')
+      if (hotkeyInput) hotkeyInput.value = hotkey
+      const hotkeyLabel = document.getElementById('hotkeyLabel')
+      if (hotkeyLabel) hotkeyLabel.textContent = `Hotkey: ${hotkey || 'Unset'}`
+      }
+      // suggested command display & UI wiring
+      const suggestedInput = document.getElementById('suggestedCmd')
+      const useSuggestedBtn = document.getElementById('useSuggestedBtn')
+      const copySuggestedBtn = document.getElementById('copySuggestedBtn')
+      if (suggestedInput) suggestedInput.value = suggestedCmd
+      if (useSuggestedBtn) {
+        useSuggestedBtn.addEventListener('click', () => {
+          // populate whisperBin and modelPath from suggested command (crude parsing)
+          if (!suggestedCmd) return
+          const binMatch = suggestedCmd.match(/^\s*(?:"|')?(.*?)(?:"|')?(?:\s|$)/)
+          const mMatch = suggestedCmd.match(/-m\s+(?:"|')?([^"'\s]+)(?:"|')?/) 
+          if (binMatch && document.getElementById('whisperBin')) document.getElementById('whisperBin').value = binMatch[1]
+          if (mMatch && document.getElementById('modelPath')) document.getElementById('modelPath').value = mMatch[1]
+        })
+      }
+      if (copySuggestedBtn) {
+        copySuggestedBtn.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(suggestedCmd)
+            copySuggestedBtn.textContent = 'Copied'
+            setTimeout(() => { copySuggestedBtn.textContent = 'Copy suggested' }, 1200)
+          } catch (e) { console.warn('copy suggested failed', e) }
+        })
       }
     } catch (err) {
       console.error('loadSettings error', err)
@@ -577,8 +787,11 @@ window.electronAPI.onRecordToggle((state) => {
     const whisperBin = document.getElementById('whisperBin').value.trim()
     const modelPath = document.getElementById('modelPath').value.trim()
     const ffmpegPath = document.getElementById('ffmpegPath').value.trim()
+    const hotkeyValue = document.getElementById('hotkeyInput').value.trim()
     const autoCheckbox = document.getElementById('autoTranscribe')
     const auto = autoCheckbox ? !!autoCheckbox.checked : false
+      const polishWhile = document.getElementById('polishWhileTranscribe')
+      const polishWhileValue = polishWhile ? !!polishWhile.checked : false
     const ollamaEnabledCheckbox = document.getElementById('ollamaEnabled')
     const ollamaEnabled = ollamaEnabledCheckbox ? !!ollamaEnabledCheckbox.checked : false
     const ollamaUrl = document.getElementById('ollamaUrl').value.trim() || 'http://localhost:11434'
@@ -589,17 +802,19 @@ window.electronAPI.onRecordToggle((state) => {
       document.getElementById('settingsResult').textContent = 'Please provide both binary and model path.'
       return
     }
+    // Build the transcribe command template
     const tpl = `${whisperBin} -m ${modelPath} -f {wav}`
-    const r = await window.electronAPI.saveSettings({ 
-      transcribe_cmd: tpl, 
-      auto_transcribe: auto,
-      ffmpeg_path: ffmpegPath,
-      ollama_enabled: ollamaEnabled,
-      ollama_url: ollamaUrl,
-      ollama_model: ollamaModel,
-      auto_paste: autoPaste
-    })
-    if (r && r.ok) document.getElementById('settingsResult').textContent = 'Saved.'
+    // include hotkey in saved settings if present
+    const payload = { transcribe_cmd: tpl, auto_transcribe: auto, ffmpeg_path: ffmpegPath, ollama_enabled: ollamaEnabled, ollama_url: ollamaUrl, ollama_model: ollamaModel, auto_paste: autoPaste }
+    if (hotkeyValue) payload.hotkey = hotkeyValue
+    const payloadWithPolish = Object.assign({}, payload, { polish_while_transcribe: polishWhileValue })
+    const r = await window.electronAPI.saveSettings(payloadWithPolish)
+    if (r && r.ok) {
+      document.getElementById('settingsResult').textContent = 'Saved.'
+      const hotkeyInput = document.getElementById('hotkeyInput')
+      const hotkeyLabel = document.getElementById('hotkeyLabel')
+      if (hotkeyInput && hotkeyLabel) hotkeyLabel.textContent = `Hotkey: ${hotkeyInput.value || 'Unset'}`
+    }
     else document.getElementById('settingsResult').textContent = `Save failed: ${r && r.error ? r.error : 'unknown'}`
   }
 
@@ -628,6 +843,90 @@ window.electronAPI.onRecordToggle((state) => {
     if (saveBtn) saveBtn.addEventListener('click', saveSettings)
     if (testBtn) testBtn.addEventListener('click', testSettings)
     loadSettings()
+    // hotkey set button wiring
+    const setHotkeyBtn = document.getElementById('setHotkeyBtn')
+    if (setHotkeyBtn) {
+      setHotkeyBtn.addEventListener('click', async () => {
+        // Show prompt overlay briefly to capture the next key combination
+        const overlay = document.createElement('div')
+        overlay.style.position = 'fixed'
+        overlay.style.left = '0'
+        overlay.style.top = '0'
+        overlay.style.right = '0'
+        overlay.style.bottom = '0'
+        overlay.style.background = 'rgba(0,0,0,0.45)'
+        overlay.style.display = 'flex'
+        overlay.style.alignItems = 'center'
+        overlay.style.justifyContent = 'center'
+        overlay.style.zIndex = '9999'
+        const prompt = document.createElement('div')
+        prompt.style.background = '#fff'
+        prompt.style.padding = '12px 18px'
+        prompt.style.borderRadius = '8px'
+        prompt.style.width = '360px'
+        prompt.style.textAlign = 'center'
+        prompt.textContent = 'Press the hotkey combination now (e.g., CommandOrControl+Shift+V)'
+        overlay.appendChild(prompt)
+        document.body.appendChild(overlay)
+        // keydown listener
+        const handler = async (ev) => {
+          ev.preventDefault()
+          ev.stopPropagation()
+          const parts = []
+          // Use CommandOrControl token for portability
+          if (ev.metaKey || ev.ctrlKey) parts.push('CommandOrControl')
+          if (ev.altKey) parts.push('Alt')
+          if (ev.shiftKey) parts.push('Shift')
+          let keyPart = ''
+          // Using ev.key for simplicity
+          const k = ev.key && ev.key.length === 1 ? ev.key.toUpperCase() : ev.key
+          keyPart = String(k || '').replace(' ', '')
+          if (!keyPart || keyPart === 'Shift' || keyPart === 'Control' || keyPart === 'Alt' || keyPart === 'Meta') {
+            // ignore lone modifiers
+            return
+          }
+          parts.push(keyPart)
+          const hk = parts.join('+')
+          // attempt to set hotkey via IPC
+          const res = await window.electronAPI.setHotkey(hk)
+          if (res && res.ok) {
+            // update UI
+            const hotkeyInput = document.getElementById('hotkeyInput')
+            if (hotkeyInput) hotkeyInput.value = res.hotkey
+            alert('Hotkey set: ' + hk)
+          } else {
+            alert('Unable to register hotkey: ' + (res && res.error ? res.error : 'unknown'))
+          }
+          // cleanup
+          document.removeEventListener('keydown', handler, true)
+          document.removeEventListener('keydown', cancelHandler, true)
+          overlay && overlay.parentNode && overlay.parentNode.removeChild(overlay)
+        }
+        const cancelHandler = (ev) => {
+          if (ev.key === 'Escape') {
+            document.removeEventListener('keydown', handler, true)
+            document.removeEventListener('keydown', cancelHandler, true)
+            overlay && overlay.parentNode && overlay.parentNode.removeChild(overlay)
+          }
+        }
+        document.addEventListener('keydown', cancelHandler, true)
+        document.addEventListener('keydown', handler, true)
+      })
+    }
+    // clear hotkey
+    const clearHotkeyBtn = document.getElementById('clearHotkeyBtn')
+    if (clearHotkeyBtn) {
+      clearHotkeyBtn.addEventListener('click', async () => {
+        const r = await window.electronAPI.setHotkey('')
+        if (r && r.ok) {
+          const hotkeyInput = document.getElementById('hotkeyInput')
+          if (hotkeyInput) hotkeyInput.value = ''
+          alert('Hotkey cleared.')
+        } else {
+          alert('Failed to clear hotkey: ' + (r && r.error ? r.error : 'unknown'))
+        }
+      })
+    }
     // add automation test UI (if not already present)
     try { setupAutomationTest() } catch (e) { /* ignore */ }
   })
