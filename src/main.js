@@ -755,8 +755,11 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           hideRecordingWindow()
           updateTrayIcon('idle')
           
-          // Show main window again
-          if (mainWindow && !mainWindow.isVisible()) {
+          // Only show main window if paste failed or auto-paste is disabled
+          // If paste succeeded, stay in background to avoid desktop switching
+          const shouldShowMainWindow = !autoPaste || (pasteResult && !pasteResult.ok)
+          
+          if (shouldShowMainWindow && mainWindow && !mainWindow.isVisible()) {
             mainWindow.show()
           }
 
@@ -783,6 +786,7 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
         console.error('Transcription failed or returned no data:', tx)
         hideRecordingWindow()
         updateTrayIcon('idle') // Reset even on failure
+        // Only show main window on error (user needs to see something went wrong)
         if (mainWindow && !mainWindow.isVisible()) mainWindow.show()
         return { ok: true, path: filename, autoTranscribed: true, error: tx && tx.error ? tx.error : 'transcription failed' }
       } catch (err) {
