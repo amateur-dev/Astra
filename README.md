@@ -48,9 +48,15 @@ If you want to build the app from source, you will need:
 
 3.  **First Launch (Bypassing Security)**:
     1.  Double-click the app to open it. You will see the warning. Click **Done** or **Cancel**.
+        
+        ![Security Warning](docs/images/security-warning.png)
+
     2.  Open **System Settings** -> **Privacy & Security**.
     3.  Scroll down to the "Security" section. You will see a message: *"voice-hotkey-electron was blocked from use because it is not from an identified developer."*
     4.  Click **Open Anyway**.
+
+        ![Open Anyway Fix](docs/images/security-fix.png)
+
     5.  A final popup will appear. Click **Open**.
     6.  *(You only need to do this once).*
 
