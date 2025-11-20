@@ -46,6 +46,26 @@ function renderModels() {
     `;
     modelTableBody.appendChild(tr);
   }
+  
+  // Update button state based on selection
+  const isComingSoon = ['tiny.en', 'base.en', 'medium.en'].includes(selectedModel);
+  if (isComingSoon) {
+    startBtn.disabled = true;
+    startBtn.textContent = 'Coming Soon';
+    startBtn.style.opacity = '0.5';
+    startBtn.style.cursor = 'not-allowed';
+  } else {
+    startBtn.disabled = false;
+    startBtn.style.opacity = '1';
+    startBtn.style.cursor = 'pointer';
+    
+    // Check if we are ready to start
+    if (dependencies && dependencies.ffmpeg && dependencies.whisper && dependencies.models && dependencies.models[MODELS[selectedModel].filename]) {
+      startBtn.textContent = 'Start Application';
+    } else {
+      startBtn.textContent = 'Download & Install';
+    }
+  }
 }
 
 async function check() {
@@ -54,13 +74,6 @@ async function check() {
     updateStatus(ffmpegStatus, dependencies.ffmpeg);
     updateStatus(whisperStatus, dependencies.whisper);
     renderModels();
-    
-    // If everything installed (including selected model), change button text
-    if (dependencies.ffmpeg && dependencies.whisper && dependencies.models[MODELS[selectedModel].filename]) {
-      startBtn.textContent = 'Start Application';
-    } else {
-      startBtn.textContent = 'Download & Install';
-    }
   } catch (e) {
     console.error(e);
     errorMsg.textContent = 'Failed to check dependencies: ' + e.message;
