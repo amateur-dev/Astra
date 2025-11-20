@@ -248,6 +248,7 @@
     let audioContext = null;
     let analyser = null;
     let dataArray = null;
+    let activeStream = null;
     
     // Set canvas resolution
     function resizeCanvas() {
@@ -344,7 +345,7 @@
     }
     
     // Start recording UI
-    async function startRecording() {
+    async function startRecording(stream) {
       // Show recording mode
       document.getElementById('recordingMode').style.display = 'flex';
       document.getElementById('processingMode').style.display = 'none';
@@ -354,16 +355,20 @@
       
       // Get audio stream for waveform visualization
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: { 
-            sampleRate: 48000, 
-            channelCount: 1, 
-            noiseSuppression: false, 
-            echoCancellation: false, 
-            autoGainControl: false 
-          } 
-        });
-        initAudioVisualization(stream);
+        if (stream) {
+          activeStream = stream;
+        } else {
+          activeStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: { 
+              sampleRate: 48000, 
+              channelCount: 1, 
+              noiseSuppression: false, 
+              echoCancellation: false, 
+              autoGainControl: false 
+            } 
+          });
+        }
+        initAudioVisualization(activeStream);
       } catch (e) {
         console.error('Failed to get audio stream for visualization:', e);
         // Continue without waveform if mic access fails
@@ -394,6 +399,14 @@
       if (audioContext) {
         audioContext.close();
         audioContext = null;
+      }
+
+      // Stop all media tracks to release microphone (removes orange dot)
+      if (activeStream) {
+        activeStream.getTracks().forEach(track => {
+          try { track.stop(); } catch (e) { console.error('Error stopping track:', e); }
+        });
+        activeStream = null;
       }
     }
     
