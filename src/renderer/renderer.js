@@ -775,7 +775,7 @@ window.electronAPI.onRecordToggle(async (state) => {
       const ollamaUrl = r && r.ollama_url ? r.ollama_url : 'http://localhost:11434'
       const ollamaModel = r && r.ollama_model ? r.ollama_model : 'llama3.2'
   const ollamaEnabled = r && r.ollama_enabled === true
-  const autoPaste = r && r.auto_paste === true
+  const autoPaste = (r && r.auto_paste !== undefined) ? r.auto_paste : true // Default to true if undefined
   const ffmpegPath = r && r.ffmpeg_path ? r.ffmpeg_path : ''
   const hotkey = r && r.hotkey ? r.hotkey : (process.env.HOTKEY || 'CommandOrControl+Shift+V')
   const suggestedCmd = r && r.suggested_transcribe_cmd ? r.suggested_transcribe_cmd : ''
@@ -975,6 +975,8 @@ window.electronAPI.onRecordToggle(async (state) => {
                     actionBtn.style.minWidth = '80px'
                     actionBtn.id = `btn-download-${m.key}` // ID for progress updates
                     
+                    const isComingSoon = ['tiny.en', 'base.en', 'medium.en'].includes(m.key)
+
                     if (m.active) {
                         actionBtn.textContent = 'Active'
                         actionBtn.disabled = true
@@ -982,6 +984,13 @@ window.electronAPI.onRecordToggle(async (state) => {
                         actionBtn.style.background = '#e6e6e6'
                         actionBtn.style.color = '#666'
                         actionBtn.style.border = '1px solid #ccc'
+                    } else if (isComingSoon) {
+                        actionBtn.textContent = 'Coming Soon'
+                        actionBtn.disabled = true
+                        actionBtn.style.opacity = '0.6'
+                        actionBtn.style.background = '#f0f0f0'
+                        actionBtn.style.color = '#999'
+                        actionBtn.style.border = '1px solid #ddd'
                     } else if (m.installed) {
                         actionBtn.textContent = 'Switch'
                         actionBtn.style.background = '#fff'
