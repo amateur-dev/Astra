@@ -270,6 +270,14 @@ btn.addEventListener('click', () => toggleRecording())
 
 async function startRecording () {
   try {
+    // Ensure any previous stream is stopped before starting a new one
+    if (currentStream) {
+      currentStream.getTracks().forEach(t => {
+        try { t.stop() } catch (e) { /* ignore */ }
+      })
+      currentStream = null
+    }
+    
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 48000, channelCount: 1, noiseSuppression: false, echoCancellation: false, autoGainControl: false } })
     currentStream = stream
     chunks = []
