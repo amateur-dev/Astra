@@ -1,7 +1,11 @@
 {
   "name": "voice-hotkey-electron",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Minimal Electron-based voice-to-text tray app (rewrite)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amateur-dev/local-hotkey-voice-mac-app.git"
+  },
   "main": "src/main.js",
   "scripts": {
   "start": "electron .",
@@ -34,7 +38,8 @@
         {
           "target": "dmg",
           "arch": [
-            "universal"
+            "x64",
+            "arm64"
           ]
         }
       ],

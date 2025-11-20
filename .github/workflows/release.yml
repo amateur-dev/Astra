@@ -25,4 +25,4 @@ jobs:
           # Secrets are only available in this trusted workflow, not in PRs
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          npm run dist:universal
+          npx electron-builder --mac --x64 --arm64 --publish always
