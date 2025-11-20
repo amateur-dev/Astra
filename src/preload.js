@@ -3,11 +3,13 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('electronAPI', {
   onRecordToggle: (cb) => ipcRenderer.on('record-toggle', (event, state) => cb(state)),
   onLivePatch: (cb) => ipcRenderer.on('live-patch', (event, patch) => cb(patch)),
-  getAppVersion: () => ipcRenderer.invoke('app-version')
+  getAppVersion: () => ipcRenderer.invoke('app-version'),
+  checkOllama: () => ipcRenderer.invoke('check-ollama')
   ,
   saveRecording: (uint8Array) => ipcRenderer.invoke('save-recording', uint8Array)
   ,
-  transcribeFile: (webmPath) => ipcRenderer.invoke('transcribe', webmPath),
+  // transcribeFile accepts an optional options object: { polishNow: boolean }
+  transcribeFile: (webmPath, options = {}) => ipcRenderer.invoke('transcribe', webmPath, options),
   // settings
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
@@ -22,7 +24,39 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // open system microphone privacy settings
   openMicrophoneSettings: () => ipcRenderer.invoke('open-microphone-settings')
   ,
+  // polish a transcript with Ollama on-demand
+  polishTranscript: (text, options = {}) => ipcRenderer.invoke('polish-transcript', text, options),
+  // Hotkey: set or get
+  setHotkey: (hotkey) => ipcRenderer.invoke('set-hotkey', hotkey),
   // automation / apple events helpers
   testAutomation: () => ipcRenderer.invoke('test-automation'),
-  openAutomationSettings: () => ipcRenderer.invoke('open-automation-settings')
+  openAutomationSettings: () => ipcRenderer.invoke('open-automation-settings'),
+  // Recording window specific
+  onRecordingStart: (cb) => ipcRenderer.on('recording-start', (event, stream) => cb(stream)),
+  onRecordingStop: (cb) => ipcRenderer.on('recording-stop', () => cb()),
+  onShowProcessing: (cb) => ipcRenderer.on('show-processing', () => cb()),
+  cancelRecording: () => ipcRenderer.invoke('cancel-recording'),
+  isRecording: () => ipcRenderer.invoke('is-recording'),
+  // Processing window specific
+  onProcessingProgress: (cb) => ipcRenderer.on('processing-progress', (event, data) => cb(data)),
+  onProcessingComplete: (cb) => ipcRenderer.on('processing-complete', () => cb()),
+  cancelTranscription: () => ipcRenderer.invoke('cancel-transcription'),
+  // Transcript result window specific
+  onTranscriptData: (cb) => ipcRenderer.on('transcript-data', (event, text) => cb(text)),
+  closeTranscriptWindow: () => ipcRenderer.invoke('close-transcript-window'),
+  // Logging
+  openLogViewer: () => ipcRenderer.invoke('open-log-viewer'),
+  getLogs: () => ipcRenderer.invoke('get-logs'),
+  clearLogs: () => ipcRenderer.invoke('clear-logs'),
+  
+  // Setup / Dependencies
+  checkDependencies: () => ipcRenderer.invoke('check-dependencies'),
+  downloadDependency: (type, param) => ipcRenderer.invoke('download-dependency', type, param),
+  onDownloadProgress: (cb) => ipcRenderer.on('download-progress', (event, data) => cb(data)),
+  finishSetup: () => ipcRenderer.invoke('finish-setup'),
+  
+  // Model Management
+  getAvailableModels: () => ipcRenderer.invoke('get-available-models'),
+  setModel: (model) => ipcRenderer.invoke('set-model', model),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url)
 })

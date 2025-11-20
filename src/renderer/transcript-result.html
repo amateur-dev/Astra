@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transcript</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      color: white;
+      overflow: hidden;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 32px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      max-width: 600px;
+      max-height: 80vh;
+      width: 90vw;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .title {
+      font-size: 18px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.95);
+    }
+
+    .close-button {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 12px;
+      padding: 6px 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .close-button:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: rgba(255, 255, 255, 0.9);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    .close-button:active {
+      transform: scale(0.98);
+    }
+
+    .transcript-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      max-height: 400px;
+    }
+
+    .transcript-text {
+      font-size: 15px;
+      line-height: 1.6;
+      color: rgba(255, 255, 255, 0.9);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+
+    /* Custom scrollbar */
+    .transcript-container::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .transcript-container::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 4px;
+    }
+
+    .transcript-container::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+    }
+
+    .transcript-container::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+    }
+
+    .button {
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: none;
+      outline: none;
+    }
+
+    .button:active {
+      transform: scale(0.98);
+    }
+
+    .button-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .button-secondary:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: rgba(255, 255, 255, 0.9);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    .button-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .button-primary:hover {
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .button-primary::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 0;
+      height: 0;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      transform: translate(-50%, -50%);
+      transition: width 0.3s, height 0.3s;
+    }
+
+    .button-primary:active::after {
+      width: 200px;
+      height: 200px;
+    }
+
+    .button-success {
+      background: linear-gradient(135deg, #34c759 0%, #30d158 100%);
+    }
+
+    .button-success:hover {
+      box-shadow: 0 4px 12px rgba(52, 199, 89, 0.4);
+    }
+
+    .info-message {
+      padding: 12px 16px;
+      background: rgba(255, 193, 7, 0.1);
+      border: 1px solid rgba(255, 193, 7, 0.3);
+      border-radius: 8px;
+      color: rgba(255, 193, 7, 0.9);
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .info-icon {
+      font-size: 16px;
+    }
+
+    .shortcuts {
+      display: flex;
+      gap: 12px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .shortcut {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .key {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+      font-size: 11px;
+    }
+
+    /* Fade-in animation */
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .container {
+      animation: fadeIn 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="title">Transcript</div>
+      <button class="close-button" id="closeButton">
+        <span>✕</span>
+        <span>Esc</span>
+      </button>
+    </div>
+
+    <div class="info-message">
+      <span class="info-icon">ℹ️</span>
+      <span>Could not paste automatically. You can copy the text below.</span>
+    </div>
+
+    <div class="transcript-container">
+      <div class="transcript-text" id="transcriptText">Loading...</div>
+    </div>
+
+    <div class="actions">
+      <button class="button button-secondary" id="selectAllButton">
+        Select All
+      </button>
+      <button class="button button-primary" id="copyButton">
+        Copy to Clipboard
+      </button>
+    </div>
+
+    <div class="shortcuts">
+      <div class="shortcut">
+        <span class="key">⌘</span>
+        <span class="key">C</span>
+        <span>Copy</span>
+      </div>
+      <div class="shortcut">
+        <span class="key">⌘</span>
+        <span class="key">A</span>
+        <span>Select All</span>
+      </div>
+      <div class="shortcut">
+        <span class="key">Esc</span>
+        <span>Close</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const transcriptText = document.getElementById('transcriptText')
+    const copyButton = document.getElementById('copyButton')
+    const selectAllButton = document.getElementById('selectAllButton')
+    const closeButton = document.getElementById('closeButton')
+
+    let currentText = ''
+
+    // Listen for transcript data from main process
+    if (window.electronAPI && window.electronAPI.onTranscriptData) {
+      window.electronAPI.onTranscriptData((text) => {
+        currentText = text
+        transcriptText.textContent = text
+      })
+    }
+
+    // Copy to clipboard
+    function copyToClipboard() {
+      if (!currentText) return
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(currentText).then(() => {
+          // Update button to show success
+          copyButton.textContent = '✓ Copied!'
+          copyButton.classList.remove('button-primary')
+          copyButton.classList.add('button-success')
+
+          // Reset after 2 seconds
+          setTimeout(() => {
+            copyButton.textContent = 'Copy to Clipboard'
+            copyButton.classList.remove('button-success')
+            copyButton.classList.add('button-primary')
+          }, 2000)
+
+          // Auto-close after successful copy (optional)
+          setTimeout(() => {
+            closeWindow()
+          }, 2500)
+        }).catch(err => {
+          console.error('Failed to copy:', err)
+          alert('Failed to copy to clipboard. Please select and copy manually.')
+        })
+      } else {
+        // Fallback: select text for manual copy
+        selectAllText()
+        alert('Please press ⌘C to copy the selected text.')
+      }
+    }
+
+    // Select all text
+    function selectAllText() {
+      const range = document.createRange()
+      range.selectNodeContents(transcriptText)
+      const selection = window.getSelection()
+      selection.removeAllRanges()
+      selection.addRange(range)
+    }
+
+    // Close window
+    function closeWindow() {
+      if (window.electronAPI && window.electronAPI.closeTranscriptWindow) {
+        window.electronAPI.closeTranscriptWindow()
+      }
+    }
+
+    // Event listeners
+    copyButton.addEventListener('click', copyToClipboard)
+    selectAllButton.addEventListener('click', selectAllText)
+    closeButton.addEventListener('click', closeWindow)
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      // Escape to close
+      if (e.key === 'Escape') {
+        closeWindow()
+      }
+      // Cmd+C to copy (already handled by browser, but we can show feedback)
+      else if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+        if (window.getSelection().toString()) {
+          // User is manually copying selection
+          setTimeout(() => {
+            copyButton.textContent = '✓ Copied!'
+            copyButton.classList.remove('button-primary')
+            copyButton.classList.add('button-success')
+            setTimeout(() => {
+              copyButton.textContent = 'Copy to Clipboard'
+              copyButton.classList.remove('button-success')
+              copyButton.classList.add('button-primary')
+            }, 2000)
+          }, 100)
+        }
+      }
+      // Cmd+A to select all
+      else if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+        e.preventDefault()
+        selectAllText()
+      }
+      // Enter or Space to copy (convenience)
+      else if (e.key === 'Enter' || (e.key === ' ' && e.target === document.body)) {
+        e.preventDefault()
+        copyToClipboard()
+      }
+    })
+
+    // Focus the transcript for immediate keyboard interaction
+    transcriptText.focus()
+  </script>
+</body>
+</html>
