@@ -1,6 +1,6 @@
 {
   "name": "voice-hotkey-electron",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Minimal Electron-based voice-to-text tray app (rewrite)",
   "repository": {
     "type": "git",
