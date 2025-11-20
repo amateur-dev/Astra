@@ -18,8 +18,13 @@ function getBinaryPath(folderName, fileName) {
   if (app.isPackaged) {
     const bundledPath = path.join(process.resourcesPath, folderName, fileName);
     if (fs.existsSync(bundledPath)) return bundledPath;
+  } else {
+    // 2. Check local build directory (Development)
+    // Use __dirname to reliably find project root from src/lib/
+    const localBuildPath = path.join(__dirname, '..', '..', 'build', folderName, fileName);
+    if (fs.existsSync(localBuildPath)) return localBuildPath;
   }
-  // 2. Check userData bin (Downloaded)
+  // 3. Check userData bin (Downloaded)
   return path.join(BIN_DIR, fileName);
 }
 

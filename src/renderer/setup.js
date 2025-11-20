@@ -8,10 +8,10 @@ let selectedModel = 'small.en'; // Default
 let dependencies = null;
 
 const MODELS = {
-  'tiny.en': { filename: 'ggml-tiny.en.bin', size: '75 MB', ram: '~390 MB', desc: 'Fastest, lower accuracy' },
-  'base.en': { filename: 'ggml-base.en.bin', size: '142 MB', ram: '~500 MB', desc: 'Balanced speed/accuracy' },
+  'tiny.en': { filename: 'ggml-tiny.en.bin', size: '75 MB', ram: '~390 MB', desc: 'Fastest (Coming Soon)' },
+  'base.en': { filename: 'ggml-base.en.bin', size: '142 MB', ram: '~500 MB', desc: 'Balanced (Coming Soon)' },
   'small.en': { filename: 'ggml-small.en.bin', size: '466 MB', ram: '~1.0 GB', desc: 'Good accuracy (Recommended)' },
-  'medium.en': { filename: 'ggml-medium.en.bin', size: '1.5 GB', ram: '~2.6 GB', desc: 'High accuracy, slow' }
+  'medium.en': { filename: 'ggml-medium.en.bin', size: '1.5 GB', ram: '~2.6 GB', desc: 'High accuracy (Coming Soon)' }
 };
 
 function updateStatus(el, isOk) {

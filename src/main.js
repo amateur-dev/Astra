@@ -4,10 +4,15 @@ const fs = require('fs')
 const os = require('os')
 const { exec } = require('child_process')
 const Store = require('electron-store')
-const store = new Store()
+const store = new Store({
+  defaults: {
+    auto_paste: true,
+    auto_transcribe: true
+  }
+})
 const logger = require('./lib/logger')
 const dependencyManager = require('./lib/dependency-manager')
-const { BIN_DIR, MODELS_DIR } = require('./lib/paths')
+const { BIN_DIR, MODELS_DIR, WHISPER_PATH } = require('./lib/paths')
 const { shell } = require('electron')
 
 // Add BIN_DIR to PATH so child_process can find ffmpeg/whisper
@@ -32,7 +37,7 @@ console.warn = (...args) => {
 }
 
 // Suggested recommended default transcription command (does NOT overwrite user settings)
-const SUGGESTED_TRANSCRIBE_CMD = `whisper-cli -m models/ggml-small.en.bin -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -otxt -`
+const SUGGESTED_TRANSCRIBE_CMD = `"${WHISPER_PATH}" -m models/ggml-small.en.bin -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -nt`
 
 // Resolve a usable `fetch` in the main process.
 // Prefer a built-in/global fetch (available in newer Node/Electron), then try
@@ -106,6 +111,10 @@ function createWindow () {
       mainWindow.center()
       mainWindow.loadFile(path.join(__dirname, 'renderer', 'setup.html'))
     }
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   // Ensure the session will handle permission requests from the renderer.
@@ -407,7 +416,7 @@ function registerHotkey (hotkey) {
         })
 
         // Hide main window when recording starts
-        if (mainWindow && mainWindow.isVisible()) {
+        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
           mainWindow.hide()
         }
         showRecordingWindow()
@@ -597,7 +606,7 @@ ipcMain.handle('get-settings', async () => {
     ollama_url: store.get('ollama_url'),
     ollama_model: store.get('ollama_model'),
     ollama_enabled: store.get('ollama_enabled'),
-    auto_paste: store.get('auto_paste'),
+    auto_paste: store.get('auto_paste') !== undefined ? store.get('auto_paste') : true, // Default to true if undefined
     ffmpeg_path: store.get('ffmpeg_path'),
     hotkey: store.get('hotkey'),
     model: store.get('model')
@@ -631,7 +640,7 @@ async function handleCancelRecording() {
     updateTrayIcon('idle')
     
     // Stop recording in main window (stops actual recording)
-    if (mainWindow && mainWindow.webContents) {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
       mainWindow.webContents.send('record-toggle', false)
     }
     
@@ -689,7 +698,7 @@ ipcMain.handle('test-transcribe', async (event) => {
     if (!tpl) {
        const modelName = store.get('model') || 'ggml-small.en.bin'
        const modelPath = path.join(MODELS_DIR, modelName)
-       tpl = `whisper-cli -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -otxt -`
+       tpl = `"${WHISPER_PATH}" -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -nt`
     }
 
     if (!tpl) return { ok: false, error: 'No transcription command configured' }
@@ -946,7 +955,7 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           // If paste succeeded, stay in background to avoid desktop switching
           const shouldShowMainWindow = !autoPaste || (pasteResult && !pasteResult.ok)
           
-          if (shouldShowMainWindow && mainWindow && !mainWindow.isVisible()) {
+          if (shouldShowMainWindow && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
             mainWindow.show()
           }
 
@@ -974,20 +983,20 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
         hideRecordingWindow()
         updateTrayIcon('idle') // Reset even on failure
         // Only show main window on error (user needs to see something went wrong)
-        if (mainWindow && !mainWindow.isVisible()) mainWindow.show()
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show()
         return { ok: true, path: filename, autoTranscribed: true, error: tx && tx.error ? tx.error : 'transcription failed' }
       } catch (err) {
         console.error('Auto-transcription exception:', err)
         hideRecordingWindow()
         updateTrayIcon('idle') // Reset even on error
-        if (mainWindow && !mainWindow.isVisible()) mainWindow.show()
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show()
         return { ok: true, path: filename, autoTranscribed: true, error: String(err) }
       }
     }
     console.log('Auto-transcribe disabled, returning saved path only')
     hideRecordingWindow()
     updateTrayIcon('idle')
-    if (mainWindow && !mainWindow.isVisible()) mainWindow.show()
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show()
     return { ok: true, path: filename }
   } catch (err) {
     console.error('Failed to save recording:', err)
@@ -1171,10 +1180,9 @@ async function transcribeWebm (webmPath, options = {}) {
       return { ok: false, error: 'ffmpeg not found. Install ffmpeg (Homebrew: `brew install ffmpeg`) or bundle ffmpeg in the app.' }
     }
     await new Promise((resolve, reject) => {
-      // Convert and apply a lightweight silence-trim filter to remove long
-      // leading/trailing pauses which can confuse the decoder. This reduces
-      // total decoder time and hallucinations.
-      const cmd = `${JSON.stringify(ffmpegCmd)} -y -i ${JSON.stringify(webmPath)} -af "silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB:stop_periods=1:stop_duration=0.5:stop_threshold=-50dB" -ar 16000 -ac 1 -sample_fmt s16 ${JSON.stringify(wavPath)}`
+      // Convert to 16kHz mono WAV for Whisper.
+      // Removed silenceremove filter as it was truncating the start of speech.
+      const cmd = `${JSON.stringify(ffmpegCmd)} -y -i ${JSON.stringify(webmPath)} -ar 16000 -ac 1 -sample_fmt s16 ${JSON.stringify(wavPath)}`
       exec(cmd, (err, stdout, stderr) => {
         if (err) {
           console.error('ffmpeg failed', err, stderr)
@@ -1190,7 +1198,7 @@ async function transcribeWebm (webmPath, options = {}) {
        const modelName = store.get('model') || 'ggml-small.en.bin'
        const modelPath = path.join(MODELS_DIR, modelName)
        // Use absolute path for model to be safe
-       tpl = `whisper-cli -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -otxt -`
+       tpl = `"${WHISPER_PATH}" -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -nt`
     }
 
     const cmd = tpl.replace(/{wav}/g, JSON.stringify(finalWav))
@@ -1249,7 +1257,7 @@ async function transcribeWav (wavPath, options = {}) {
        const modelName = store.get('model') || 'ggml-small.en.bin'
        const modelPath = path.join(MODELS_DIR, modelName)
        // Use absolute path for model to be safe
-       tpl = `whisper-cli -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -otxt -`
+       tpl = `"${WHISPER_PATH}" -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -nt`
     }
 
     console.log('Transcribe command template:', tpl)
@@ -1264,9 +1272,10 @@ async function transcribeWav (wavPath, options = {}) {
       console.log('FFmpeg command:', ffmpegCmd)
       if (ffmpegCmd) {
         const trimmed = path.join(os.tmpdir(), `voicehotkey-trimmed-${Date.now()}.wav`)
-        // Use silenceremove to drop long leading/trailing silence.
+        // Resample to 16kHz mono for Whisper.
+        // Removed silenceremove filter as it was truncating the start of speech.
         await new Promise((resolve, reject) => {
-          const cmd = `${JSON.stringify(ffmpegCmd)} -y -i ${JSON.stringify(wavPath)} -af "silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB:stop_periods=1:stop_duration=0.5:stop_threshold=-50dB" -ar 16000 -ac 1 -sample_fmt s16 ${JSON.stringify(trimmed)}`
+          const cmd = `${JSON.stringify(ffmpegCmd)} -y -i ${JSON.stringify(wavPath)} -ar 16000 -ac 1 -sample_fmt s16 ${JSON.stringify(trimmed)}`
           console.log('FFmpeg trim command:', cmd)
           exec(cmd, (err, stdout, stderr) => {
             if (err) return reject(new Error('ffmpeg trim failed: ' + (stderr || err.message)))
