@@ -346,6 +346,14 @@
     
     // Start recording UI
     async function startRecording(stream) {
+      // Ensure any previous stream is stopped before starting a new one
+      if (activeStream) {
+        activeStream.getTracks().forEach(track => {
+          try { track.stop(); } catch (e) { console.error('Error stopping previous track:', e); }
+        });
+        activeStream = null;
+      }
+
       // Show recording mode
       document.getElementById('recordingMode').style.display = 'flex';
       document.getElementById('processingMode').style.display = 'none';
