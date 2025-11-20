@@ -5,6 +5,8 @@ A powerful, local-first voice dictation tool for macOS. Press a hotkey, speak, a
 ![Status](https://img.shields.io/badge/status-beta-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
 
+> **[Download the latest version for macOS](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases/latest)**
+
 ## Features
 
 -   **Global Hotkey**: Toggle recording from anywhere (Default: `Cmd+Shift+V`).
