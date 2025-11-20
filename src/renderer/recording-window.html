@@ -249,6 +249,7 @@
     let analyser = null;
     let dataArray = null;
     let activeStream = null;
+    let isStarting = false;
     
     // Set canvas resolution
     function resizeCanvas() {
@@ -346,23 +347,27 @@
     
     // Start recording UI
     async function startRecording(stream) {
-      // Ensure any previous stream is stopped before starting a new one
-      if (activeStream) {
-        activeStream.getTracks().forEach(track => {
-          try { track.stop(); } catch (e) { console.error('Error stopping previous track:', e); }
-        });
-        activeStream = null;
-      }
+      // Prevent concurrent start calls
+      if (isStarting) return;
+      isStarting = true;
 
-      // Show recording mode
-      document.getElementById('recordingMode').style.display = 'flex';
-      document.getElementById('processingMode').style.display = 'none';
-      
-      startTime = Date.now();
-      timerInterval = setInterval(updateTimer, 1000);
-      
-      // Get audio stream for waveform visualization
       try {
+        // Ensure any previous stream is stopped before starting a new one
+        if (activeStream) {
+          activeStream.getTracks().forEach(track => {
+            try { track.stop(); } catch (e) { console.error('Error stopping previous track:', e); }
+          });
+          activeStream = null;
+        }
+
+        // Show recording mode
+        document.getElementById('recordingMode').style.display = 'flex';
+        document.getElementById('processingMode').style.display = 'none';
+        
+        startTime = Date.now();
+        timerInterval = setInterval(updateTimer, 1000);
+        
+        // Get audio stream for waveform visualization
         if (stream) {
           activeStream = stream;
         } else {
@@ -380,6 +385,8 @@
       } catch (e) {
         console.error('Failed to get audio stream for visualization:', e);
         // Continue without waveform if mic access fails
+      } finally {
+        isStarting = false;
       }
     }
     

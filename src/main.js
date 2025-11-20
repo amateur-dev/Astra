@@ -361,17 +361,14 @@ function registerHotkey (hotkey) {
         mainWindow.webContents.send('record-toggle', isRecording)
         console.log('Sent record-toggle event to renderer')
         
-        // Also show/hide recording window for manual button press
+        // Ensure recording window is shown/hidden correctly
         if (isRecording) {
           showRecordingWindow()
-          if (recordingWindow && recordingWindow.webContents) {
-            recordingWindow.webContents.send('recording-start')
-          }
+          // Note: 'recording-start' is already sent above, do not send it again here
         } else {
-          hideRecordingWindow()
-          if (recordingWindow && recordingWindow.webContents) {
-            recordingWindow.webContents.send('recording-stop')
-          }
+          // Note: 'recording-stop' and 'show-processing' are already sent above
+          // We don't want to hide it here because it needs to show processing state
+          // hideRecordingWindow() // Removed to allow processing state to show
         }
       } else {
         console.warn('mainWindow not available to send record-toggle')
