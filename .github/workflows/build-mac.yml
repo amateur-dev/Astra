@@ -32,6 +32,7 @@ jobs:
         run: npm ci
 
       - name: Build DMG (electron-builder)
+        # Only run distribution build; signing is skipped for PRs automatically
         run: npm run dist
 
       - name: Upload DMG artifact
