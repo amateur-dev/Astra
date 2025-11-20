@@ -43,5 +43,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cancelTranscription: () => ipcRenderer.invoke('cancel-transcription'),
   // Transcript result window specific
   onTranscriptData: (cb) => ipcRenderer.on('transcript-data', (event, text) => cb(text)),
-  closeTranscriptWindow: () => ipcRenderer.invoke('close-transcript-window')
+  closeTranscriptWindow: () => ipcRenderer.invoke('close-transcript-window'),
+  // Logging
+  openLogViewer: () => ipcRenderer.invoke('open-log-viewer'),
+  getLogs: () => ipcRenderer.invoke('get-logs'),
+  clearLogs: () => ipcRenderer.invoke('clear-logs'),
+  
+  // Setup / Dependencies
+  checkDependencies: () => ipcRenderer.invoke('check-dependencies'),
+  downloadDependency: (type, param) => ipcRenderer.invoke('download-dependency', type, param),
+  onDownloadProgress: (cb) => ipcRenderer.on('download-progress', (event, data) => cb(data)),
+  finishSetup: () => ipcRenderer.invoke('finish-setup'),
+  
+  // Model Management
+  getAvailableModels: () => ipcRenderer.invoke('get-available-models'),
+  setModel: (model) => ipcRenderer.invoke('set-model', model),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url)
 })
