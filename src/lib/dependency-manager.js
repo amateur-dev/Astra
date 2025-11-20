@@ -105,7 +105,9 @@ function downloadFile(url, destPath, onProgress) {
     const file = fs.createWriteStream(destPath);
     const request = https.get(url, (response) => {
       if (response.statusCode === 302 || response.statusCode === 301) {
-        downloadFile(response.headers.location, destPath, onProgress).then(resolve).catch(reject);
+        // Handle relative redirects
+        const newUrl = new URL(response.headers.location, url).toString();
+        downloadFile(newUrl, destPath, onProgress).then(resolve).catch(reject);
         return;
       }
       
