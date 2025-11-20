@@ -1,6 +1,6 @@
 {
   "name": "voice-hotkey-electron",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Minimal Electron-based voice-to-text tray app (rewrite)",
   "repository": {
     "type": "git",
@@ -52,6 +52,11 @@
       {
         "from": "build/ffmpeg",
         "to": "ffmpeg",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "build/whisper",
+        "to": "whisper",
         "filter": ["**/*"]
       }
     ]
