@@ -1,11 +1,17 @@
 const fs = require('fs')
 const path = require('path')
+const { WHISPER_PATH } = require('./paths')
 // We require child_process at call-time so tests can stub `child_process.exec`
 
 // Check whether a 'whisper' binary is available on PATH or referenced in a
 // configured transcription template. Accepts an optional template override for
 // testing convenience.
 async function checkWhisperAvailability (tplOverride) {
+  // 1. Check managed binary first
+  if (fs.existsSync(WHISPER_PATH)) {
+    return { ok: true, path: WHISPER_PATH, source: 'managed' }
+  }
+
   try {
     const tpl = (typeof tplOverride === 'string' ? tplOverride : (process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || ''))
     if (tpl && /whisper/i.test(tpl)) {

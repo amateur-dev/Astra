@@ -1,100 +1,108 @@
-# Voice Hotkey — Electron rewrite (MVP)
+# Voice Hotkey (macOS)
 
-This repo was replaced with a minimal Electron-based MVP per user request. It provides a tray app that appears in the Dock and supports a global hotkey (Cmd/Ctrl+Shift+R) to toggle a recording state.
+A powerful, local-first voice dictation tool for macOS. Press a hotkey, speak, and have your text typed directly into any application. Powered by [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) for privacy and speed, with optional LLM polishing via [Ollama](https://ollama.ai).
 
-Quick start
+![Status](https://img.shields.io/badge/status-beta-blue)
+![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
 
-1. Install dependencies:
+> **[Download the latest version for macOS](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases/latest)**
 
-```bash
-npm install
-```
+## Features
 
-2. Run in development:
+-   **Global Hotkey**: Toggle recording from anywhere (Default: `Cmd+Shift+V`).
+-   **Floating Overlay**: Minimal, non-intrusive recording UI with waveform visualization.
+-   **Local Transcription**: Uses Whisper.cpp for offline, private, and fast speech-to-text.
+-   **Smart Polishing (Optional)**: Use Ollama (Llama 3, etc.) to fix grammar, punctuation, and formatting automatically.
+-   **Auto-Paste**: Automatically types the transcribed text into your active application.
+-   **System Integration**:
+    -   Does not steal focus from your active window.
+    -   Dynamic menu bar icons (Idle / Recording / Processing).
+    -   "Screen Saver" window level ensures visibility over fullscreen apps.
 
-# Voice Hotkey — Electron (MVP)
+## Prerequisites
 
-This repository contains an Electron-based MVP that records microphone audio with a global hotkey, transcribes locally using a Whisper binary (whisper.cpp), optionally polishes the transcript using a locally running Ollama server, and can paste the resulting text into the frontmost app.
+The app includes a **First Run Wizard** that will attempt to download and configure the necessary dependencies automatically.
 
-This README covers prerequisites, how to run the app during development, and the typical recording → transcribe → paste workflow.
+However, if you prefer to set them up manually or if the automatic setup fails:
 
-Quick start (development)
+1.  **Node.js** (v18+)
+2.  **FFmpeg**: For audio processing.
+    ```bash
+    brew install ffmpeg
+    ```
+3.  **Whisper.cpp**: For transcription.
+    -   Clone and build [whisper.cpp](https://github.com/ggerganov/whisper.cpp).
+    -   Ensure you have the `whisper-cli` (or `main`) binary.
+    -   Download a model file (e.g., `ggml-small.en.bin`).
+    -   *See [LLM_SETUP.md](LLM_SETUP.md) for detailed build instructions.*
 
-1. Install dependencies:
+4.  **(Optional) Ollama**: For text polishing.
+    -   Install [Ollama](https://ollama.ai).
+    -   Pull a model: `ollama pull llama3`
 
-```bash
-npm install
-```
+## Installation & Setup
 
-2. Run the app:
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/amateur-dev/local-hotkey-voice-mac-app.git
+    cd local-hotkey-voice-mac-app
+    ```
 
-```bash
-npm run start
-```
+2.  **Install dependencies**:
+    ```bash
+    npm install
+    ```
 
-3. Open the Settings in the app and configure:
-  - Whisper binary path (or set `TRANSCRIBE_CMD` env var)
-  - Model path (-m)
-  - Optional: enable Ollama polishing and set Ollama URL/model
-  - Optional: enable Auto-transcribe and Auto-paste
+3.  **Configure Binaries**:
+    -   The app looks for `whisper-cli` in your PATH or common locations (`~/whisper.cpp/build/bin/whisper-cli`, etc.).
+    -   It looks for models in the `models/` directory of the project.
+    -   *Tip: You can symlink your model to the project folder:*
+        ```bash
+        mkdir -p models
+        ln -s /path/to/your/ggml-small.en.bin models/ggml-small.en.bin
+        ```
 
-Core flow
+4.  **Run the app**:
+    ```bash
+    npm start
+    ```
 
-- Press the global hotkey (default: Cmd+Shift+V) to start recording.
-- Press the hotkey again to stop recording. The app saves the recording, converts it to WAV, runs your transcription command, optionally polishes with Ollama, and then:
-  - shows the transcript in the UI
-  - optionally auto-pastes into the frontmost app (requires macOS Accessibility permission)
+## Usage
 
-Prerequisites (local)
+1.  **Start Recording**: Press `Cmd+Shift+V` (or your configured hotkey).
+    -   A floating window will appear near your cursor.
+    -   Speak your text.
+2.  **Stop Recording**: Press the hotkey again.
+    -   The app will process the audio.
+    -   Once complete, it will paste the text into your active window.
+3.  **Cancel**: Press `Escape` during recording to cancel.
 
-- Node 18+ (used by Electron)
-- ffmpeg (for webm → wav conversion). Install on macOS with Homebrew:
+## Configuration
 
-```bash
-brew install ffmpeg
-```
+Click the "Settings" button in the main window (accessible via the Tray icon -> Open) to configure:
+-   **Global Hotkey**: Change the shortcut.
+-   **Auto-Paste**: Toggle automatic pasting.
+-   **Polish with Ollama**: Enable/disable LLM post-processing.
 
-- whisper.cpp (or your preferred local CLI) built and a working CLI like `whisper-cli` or `main`. See `LLM_SETUP.md` for build steps and model download.
+## Troubleshooting
 
-- (Optional) Ollama for LLM polishing:
+-   **"Orange Dot" stays on**: This means the microphone handle wasn't released. The app has safeguards for this, but if it happens, quit the app from the tray.
+-   **Paste fails**: Ensure the app (or Terminal/VS Code if running in dev) has **Accessibility** permissions in macOS System Settings -> Privacy & Security.
+-   **Logs**: Go to Settings -> View Logs to see detailed application logs for debugging.
 
-```bash
-# install ollama - https://ollama.ai
-ollama pull llama3.2
-ollama serve
-```
+## Development
 
-Settings / TRANSCRIBE_CMD
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development instructions.
 
-You can either set the transcription command in the app Settings or export an env var in the shell used to start the app:
+## Author
 
-```bash
-export TRANSCRIBE_CMD="/path/to/whisper-cli -m /path/to/ggml-tiny.en.bin -f {wav}"
-```
+**Dipesh Sukhani**
+-   Website: [dipeshsukhani.dev](https://dipeshsukhani.dev)
+-   Email: [me@dipeshsukhani.dev](mailto:me@dipeshsukhani.dev)
+-   LinkedIn: [linkedin.com/in/dipeshsukhani](https://linkedin.com/in/dipeshsukhani)
+-   Twitter: [@dipesh_sukhani](https://x.com/dipesh_sukhani)
+-   GitHub: [@amateur-dev](https://github.com/amateur-dev)
 
-The command must include `{wav}` which will be replaced by the temporary WAV path the app generates.
+## License
 
-Accessibility note (macOS)
-
-The paste-to-front feature uses `osascript` (System Events) to synthesize Cmd+V in the frontmost app. macOS requires Accessibility permission for whatever process sends those events (Terminal during development or the packaged Electron app once distributed). If pastes fail, grant Accessibility permission in System Settings → Privacy & Security → Accessibility.
-
-Troubleshooting
-
-- Mic indicator stays on after stopping: if you see the macOS mic indicator persist, ensure you started/stopped using the hotkey (the app now releases tracks immediately). If it still persists, check for other apps holding the mic.
-- Ollama connectivity: if the app reports `Ollama unreachable`, try changing the Ollama URL to `http://127.0.0.1:11434` and ensure `ollama serve` is running and the model is pulled.
-- `ffmpeg` missing: install via Homebrew.
-
-Files of interest
-
-- `src/main.js` — Electron main process (tray, global shortcut, IPC, transcription + Ollama calls)
-- `src/preload.js` — IPC bridge for renderer
-- `src/renderer/renderer.js` — UI, MediaRecorder, and paste wiring
-
-Packaging
-
-Use `npm run dist` (configured to call `electron-builder --mac`) to produce a DMG. Packaging requires macOS and Xcode toolchain.
-
-If you need help with any step, tell me which OS step you're on and I will provide the exact commands (e.g., building whisper.cpp, pulling models, or granting macOS permissions).
-
----
-Updated to reflect the Electron rewrite and the recording → transcribe → paste flow.
+MIT
