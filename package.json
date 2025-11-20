@@ -29,7 +29,15 @@
     "appId": "com.example.voicehotkey",
     "mac": {
       "category": "public.app-category.productivity",
-      "target": ["dmg"],
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
       "extendInfo": {
         "NSMicrophoneUsageDescription": "The app requires microphone access to record voice for local transcription.",
         "NSAppleEventsUsageDescription": "Needed to paste transcriptions into the frontmost app via AppleScript when auto-paste is enabled."
