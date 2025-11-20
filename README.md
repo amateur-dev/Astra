@@ -35,9 +35,29 @@ If you want to build the app from source, you will need:
 ## Installation & Setup
 
 ### Option A: Download App (Recommended)
-1.  Download the latest `.dmg` from the [Releases Page](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases).
-2.  Open the DMG and drag the app to your Applications folder.
-3.  Run the app.
+
+1.  **Download**: Go to the [Releases Page](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases) and download the `.dmg` file for your Mac:
+    -   **Apple Silicon (M1/M2/M3)**: Download `voice-hotkey-electron-x.x.x-arm64.dmg`
+    -   **Intel Mac**: Download `voice-hotkey-electron-x.x.x.dmg` (or `x64`)
+
+2.  **Install**: Open the downloaded `.dmg` file and drag the app icon into the **Applications** folder.
+
+    > **Note on Security Warning**:
+    > Since this app is not signed with a paid Apple Developer ID ($99/year), macOS will show a warning saying it "cannot be opened because the developer cannot be verified" or "it is from an unidentified developer". **This is normal for open-source apps.**
+
+3.  **First Launch (Bypassing Security)**:
+    1.  Double-click the app to open it. You will see the warning. Click **Done** or **Cancel**.
+    2.  Open **System Settings** -> **Privacy & Security**.
+    3.  Scroll down to the "Security" section. You will see a message: *"voice-hotkey-electron was blocked from use because it is not from an identified developer."*
+    4.  Click **Open Anyway**.
+    5.  A final popup will appear. Click **Open**.
+    6.  *(You only need to do this once).*
+
+4.  **Setup Wizard**:
+    -   The app will launch and show the "Welcome" screen.
+    -   **System Components**: You should see green "Installed" badges for FFmpeg and Whisper (they are bundled with the app!).
+    -   **Select Model**: Choose a speech model (e.g., "Small") and click **Download & Install**.
+    -   Once finished, the app is ready to use!
 
 ### Option B: Build from Source
 1.  **Clone the repository**:
