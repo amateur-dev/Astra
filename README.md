@@ -21,27 +21,25 @@ A powerful, local-first voice dictation tool for macOS. Press a hotkey, speak, a
 
 ## Prerequisites
 
-The app includes a **First Run Wizard** that will attempt to download and configure the necessary dependencies automatically.
+**For Users (DMG App):**
+-   **macOS** (Apple Silicon or Intel).
+-   That's it! The app comes bundled with everything it needs (Node.js, FFmpeg, Whisper).
+-   *Note: On the first run, the app will ask to download a speech model (approx. 400MB) optimized for your needs.*
 
-However, if you prefer to set them up manually or if the automatic setup fails:
-
+**For Developers (Source Code):**
+If you want to build the app from source, you will need:
 1.  **Node.js** (v18+)
-2.  **FFmpeg**: For audio processing.
-    ```bash
-    brew install ffmpeg
-    ```
-3.  **Whisper.cpp**: For transcription.
-    -   Clone and build [whisper.cpp](https://github.com/ggerganov/whisper.cpp).
-    -   Ensure you have the `whisper-cli` (or `main`) binary.
-    -   Download a model file (e.g., `ggml-small.en.bin`).
-    -   *See [LLM_SETUP.md](LLM_SETUP.md) for detailed build instructions.*
-
-4.  **(Optional) Ollama**: For text polishing.
-    -   Install [Ollama](https://ollama.ai).
-    -   Pull a model: `ollama pull llama3`
+2.  **FFmpeg**: `brew install ffmpeg`
+3.  **Whisper.cpp**: `whisper-cli` binary in your PATH.
 
 ## Installation & Setup
 
+### Option A: Download App (Recommended)
+1.  Download the latest `.dmg` from the [Releases Page](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases).
+2.  Open the DMG and drag the app to your Applications folder.
+3.  Run the app.
+
+### Option B: Build from Source
 1.  **Clone the repository**:
     ```bash
     git clone https://github.com/amateur-dev/local-hotkey-voice-mac-app.git
