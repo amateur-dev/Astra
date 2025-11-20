@@ -4,6 +4,7 @@ A powerful, local-first voice dictation tool for macOS. Press a hotkey, speak, a
 
 ![Status](https://img.shields.io/badge/status-beta-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
+![Downloads](https://img.shields.io/github/downloads/amateur-dev/local-hotkey-voice-mac-app/total?color=brightgreen)
 
 > **[Download the latest version for macOS](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases/latest)**
 
