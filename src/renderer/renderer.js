@@ -898,6 +898,139 @@ window.electronAPI.onRecordToggle(async (state) => {
     if (saveBtn) saveBtn.addEventListener('click', saveSettings)
     if (testBtn) testBtn.addEventListener('click', testSettings)
     loadSettings()
+        // Load settings
+    loadSettings()
+    
+    // Load available models
+    if (window.electronAPI && window.electronAPI.getAvailableModels) {
+      const container = document.getElementById('modelListContainer')
+      if (container) {
+        // Global progress listener for models
+        window.electronAPI.onDownloadProgress(({ type, progress }) => {
+            if (type.startsWith('model:')) {
+                const modelKey = type.split(':')[1]
+                const btn = document.getElementById(`btn-download-${modelKey}`)
+                if (btn) {
+                    const pct = Math.round(progress * 100)
+                    btn.textContent = `${pct}%`
+                    // Visual progress bar effect on the button background
+                    btn.style.background = `linear-gradient(90deg, #0b79ff ${pct}%, #ccc ${pct}%)`
+                    btn.style.color = '#fff'
+                    btn.style.border = 'none'
+                }
+            }
+        })
+
+        const refreshModels = async () => {
+            try {
+                const { models, current } = await window.electronAPI.getAvailableModels()
+                container.innerHTML = ''
+                
+                if (!models || models.length === 0) {
+                    container.innerHTML = '<div style="padding:12px; text-align:center;">No models found</div>'
+                    return
+                }
+
+                models.forEach(m => {
+                    const row = document.createElement('div')
+                    row.style.display = 'flex'
+                    row.style.alignItems = 'center'
+                    row.style.padding = '10px'
+                    row.style.borderBottom = '1px solid #f0f0f0'
+                    row.style.gap = '10px'
+                    
+                    // Icon/Status
+                    const statusIcon = document.createElement('div')
+                    statusIcon.style.width = '24px'
+                    statusIcon.style.textAlign = 'center'
+                    statusIcon.style.fontSize = '16px'
+                    statusIcon.textContent = m.active ? '🟢' : (m.installed ? '✓' : '○')
+                    statusIcon.title = m.active ? 'Active' : (m.installed ? 'Installed' : 'Not Installed')
+                    statusIcon.style.cursor = 'help'
+                    
+                    // Info
+                    const infoDiv = document.createElement('div')
+                    infoDiv.style.flex = '1'
+                    
+                    const titleLine = document.createElement('div')
+                    titleLine.style.fontWeight = m.active ? 'bold' : 'normal'
+                    titleLine.style.fontSize = '14px'
+                    titleLine.style.color = '#333'
+                    titleLine.textContent = m.key
+                    
+                    const metaLine = document.createElement('div')
+                    metaLine.style.fontSize = '11px'
+                    metaLine.style.color = '#888'
+                    metaLine.style.marginTop = '2px'
+                    metaLine.textContent = `${m.size} • ${m.ram} • ${m.desc}`
+                    
+                    infoDiv.appendChild(titleLine)
+                    infoDiv.appendChild(metaLine)
+                    
+                    // Action Button
+                    const actionBtn = document.createElement('button')
+                    actionBtn.className = 'btn'
+                    actionBtn.style.fontSize = '12px'
+                    actionBtn.style.padding = '4px 10px'
+                    actionBtn.style.minWidth = '80px'
+                    actionBtn.id = `btn-download-${m.key}` // ID for progress updates
+                    
+                    if (m.active) {
+                        actionBtn.textContent = 'Active'
+                        actionBtn.disabled = true
+                        actionBtn.style.opacity = '0.6'
+                        actionBtn.style.background = '#e6e6e6'
+                        actionBtn.style.color = '#666'
+                        actionBtn.style.border = '1px solid #ccc'
+                    } else if (m.installed) {
+                        actionBtn.textContent = 'Switch'
+                        actionBtn.style.background = '#fff'
+                        actionBtn.style.color = '#333'
+                        actionBtn.style.border = '1px solid #ccc'
+                        actionBtn.onclick = async () => {
+                            actionBtn.textContent = '...'
+                            actionBtn.disabled = true
+                            await window.electronAPI.setModel(m.filename)
+                            await refreshModels()
+                        }
+                    } else {
+                        actionBtn.textContent = 'Download'
+                        actionBtn.style.background = '#0b79ff'
+                        actionBtn.style.color = 'white'
+                        actionBtn.style.border = 'none'
+                        actionBtn.onclick = async () => {
+                            actionBtn.textContent = '0%'
+                            actionBtn.disabled = true
+                            try {
+                                await window.electronAPI.downloadDependency('model', m.key)
+                                await refreshModels()
+                            } catch (e) {
+                                alert('Download failed: ' + e)
+                                actionBtn.textContent = 'Retry'
+                                actionBtn.disabled = false
+                                actionBtn.style.background = '#dc3545'
+                            }
+                        }
+                    }
+                    
+                    row.appendChild(statusIcon)
+                    row.appendChild(infoDiv)
+                    row.appendChild(actionBtn)
+                    container.appendChild(row)
+                })
+                
+                // Remove border from last item
+                if (container.lastChild) container.lastChild.style.borderBottom = 'none'
+            } catch (e) {
+                console.error('Failed to refresh models', e)
+                container.innerHTML = `<div style="padding:12px; color:red;">Error loading models: ${e.message}</div>`
+            }
+        }
+        
+        refreshModels()
+      }
+    }
+
     // hotkey set button wiring
     const setHotkeyBtn = document.getElementById('setHotkeyBtn')
     if (setHotkeyBtn) {
@@ -909,53 +1042,114 @@ window.electronAPI.onRecordToggle(async (state) => {
         overlay.style.top = '0'
         overlay.style.right = '0'
         overlay.style.bottom = '0'
-        overlay.style.background = 'rgba(0,0,0,0.45)'
+        overlay.style.background = 'rgba(0,0,0,0.6)'
         overlay.style.display = 'flex'
         overlay.style.alignItems = 'center'
         overlay.style.justifyContent = 'center'
         overlay.style.zIndex = '9999'
+        
         const prompt = document.createElement('div')
         prompt.style.background = '#fff'
-        prompt.style.padding = '12px 18px'
+        prompt.style.padding = '20px'
         prompt.style.borderRadius = '8px'
-        prompt.style.width = '360px'
+        prompt.style.width = '400px'
         prompt.style.textAlign = 'center'
-        prompt.textContent = 'Press the hotkey combination now (e.g., CommandOrControl+Shift+V)'
+        prompt.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)'
+        
+        const title = document.createElement('div')
+        title.textContent = 'Press Hotkey Combination'
+        title.style.fontWeight = 'bold'
+        title.style.marginBottom = '10px'
+        title.style.fontSize = '16px'
+        
+        const currentKeys = document.createElement('div')
+        currentKeys.textContent = 'Waiting for input...'
+        currentKeys.style.fontSize = '20px'
+        currentKeys.style.color = '#0b79ff'
+        currentKeys.style.margin = '20px 0'
+        currentKeys.style.minHeight = '30px'
+        
+        const subtext = document.createElement('div')
+        subtext.textContent = 'Press Esc to cancel'
+        subtext.style.color = '#999'
+        subtext.style.fontSize = '12px'
+        
+        prompt.appendChild(title)
+        prompt.appendChild(currentKeys)
+        prompt.appendChild(subtext)
         overlay.appendChild(prompt)
         document.body.appendChild(overlay)
+
         // keydown listener
         const handler = async (ev) => {
           ev.preventDefault()
           ev.stopPropagation()
+          
           const parts = []
-          // Use CommandOrControl token for portability
-          if (ev.metaKey || ev.ctrlKey) parts.push('CommandOrControl')
+          const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+          
+          // Handle modifiers
+          if (isMac) {
+             if (ev.metaKey) parts.push('CommandOrControl')
+             if (ev.ctrlKey) parts.push('Control')
+          } else {
+             if (ev.ctrlKey) parts.push('CommandOrControl')
+             if (ev.metaKey) parts.push('Super')
+          }
           if (ev.altKey) parts.push('Alt')
           if (ev.shiftKey) parts.push('Shift')
+          
           let keyPart = ''
-          // Using ev.key for simplicity
-          const k = ev.key && ev.key.length === 1 ? ev.key.toUpperCase() : ev.key
-          keyPart = String(k || '').replace(' ', '')
-          if (!keyPart || keyPart === 'Shift' || keyPart === 'Control' || keyPart === 'Alt' || keyPart === 'Meta') {
-            // ignore lone modifiers
+          // Use code for digits and letters to avoid Shift+5=% issue
+          if (ev.code.startsWith('Key')) {
+            keyPart = ev.code.slice(3).toUpperCase()
+          } else if (ev.code.startsWith('Digit')) {
+            keyPart = ev.code.slice(5)
+          } else {
+            // Fallback for other keys
+            const k = ev.key
+            if (k === ' ') keyPart = 'Space'
+            else if (k === 'ArrowUp') keyPart = 'Up'
+            else if (k === 'ArrowDown') keyPart = 'Down'
+            else if (k === 'ArrowLeft') keyPart = 'Left'
+            else if (k === 'ArrowRight') keyPart = 'Right'
+            else if (k && k.length === 1) keyPart = k.toUpperCase()
+            else keyPart = k
+          }
+          
+          // Ignore if it's just a modifier
+          const isModifier = ['Shift', 'Control', 'Alt', 'Meta', 'Command', 'Option', 'CommandOrControl', 'Super'].some(m => 
+            keyPart === m || ev.key === m
+          )
+          
+          if (isModifier) {
+            currentKeys.textContent = parts.join(' + ') + ' + ...'
             return
           }
+          
           parts.push(keyPart)
           const hk = parts.join('+')
-          // attempt to set hotkey via IPC
-          const res = await window.electronAPI.setHotkey(hk)
-          if (res && res.ok) {
-            // update UI
-            const hotkeyInput = document.getElementById('hotkeyInput')
-            if (hotkeyInput) hotkeyInput.value = res.hotkey
-            alert('Hotkey set: ' + hk)
-          } else {
-            alert('Unable to register hotkey: ' + (res && res.error ? res.error : 'unknown'))
-          }
-          // cleanup
+          currentKeys.textContent = hk
+          
+          // Remove listeners immediately
           document.removeEventListener('keydown', handler, true)
           document.removeEventListener('keydown', cancelHandler, true)
-          overlay && overlay.parentNode && overlay.parentNode.removeChild(overlay)
+          
+          // Visual feedback before closing
+          currentKeys.style.color = '#28a745'
+          setTimeout(async () => {
+            overlay && overlay.parentNode && overlay.parentNode.removeChild(overlay)
+            
+            // attempt to set hotkey via IPC
+            const res = await window.electronAPI.setHotkey(hk)
+            if (res && res.ok) {
+              const hotkeyInput = document.getElementById('hotkeyInput')
+              if (hotkeyInput) hotkeyInput.value = res.hotkey
+              // alert('Hotkey set: ' + hk)
+            } else {
+              alert('Unable to register hotkey: ' + (res && res.error ? res.error : 'unknown'))
+            }
+          }, 200)
         }
         const cancelHandler = (ev) => {
           if (ev.key === 'Escape') {
