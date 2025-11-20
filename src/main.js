@@ -5,6 +5,32 @@ const os = require('os')
 const { exec } = require('child_process')
 const Store = require('electron-store')
 const store = new Store()
+const logger = require('./lib/logger')
+const dependencyManager = require('./lib/dependency-manager')
+const { BIN_DIR, MODELS_DIR } = require('./lib/paths')
+const { shell } = require('electron')
+
+// Add BIN_DIR to PATH so child_process can find ffmpeg/whisper
+process.env.PATH = `${BIN_DIR}${path.delimiter}${process.env.PATH}`
+
+// Redirect console logging to our logger
+const originalConsoleLog = console.log
+const originalConsoleError = console.error
+const originalConsoleWarn = console.warn
+
+console.log = (...args) => {
+  logger.info(...args)
+  // originalConsoleLog(...args) // logger already writes to stdout
+}
+console.error = (...args) => {
+  logger.error(...args)
+  // originalConsoleError(...args) // logger already writes to stderr
+}
+console.warn = (...args) => {
+  logger.warn(...args)
+  // originalConsoleWarn(...args) // logger already writes to stdout
+}
+
 // Suggested recommended default transcription command (does NOT overwrite user settings)
 const SUGGESTED_TRANSCRIBE_CMD = `whisper-cli -m models/ggml-small.en.bin -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -otxt -`
 
@@ -52,6 +78,7 @@ let mainWindow = null
 let recordingWindow = null
 let processingWindow = null
 let transcriptWindow = null
+let logWindow = null
 let tray = null
 let isRecording = false
 let isCancelled = false
@@ -66,6 +93,21 @@ function createWindow () {
       preload: path.join(__dirname, 'preload.js')
     }
   })
+  
+  // Check dependencies and decide which page to load
+  dependencyManager.checkDependencies().then(status => {
+    // Check if we have FFmpeg, Whisper, and at least one model
+    const hasModel = Object.values(status.models).some(v => v)
+    if (status.ffmpeg && status.whisper && hasModel) {
+      mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+    } else {
+      // Resize for setup wizard
+      mainWindow.setSize(700, 600)
+      mainWindow.center()
+      mainWindow.loadFile(path.join(__dirname, 'renderer', 'setup.html'))
+    }
+  })
+
   // Ensure the session will handle permission requests from the renderer.
   // On macOS this lets the renderer request microphone access which will
   // trigger the system prompt (assuming NSMicrophoneUsageDescription is present
@@ -81,7 +123,7 @@ function createWindow () {
   } catch (e) {
     console.warn('Permission handler setup failed', e)
   }
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  // mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html')) // Handled by checkDependencies above
 }
 
 // Define tray icons
@@ -312,6 +354,30 @@ function hideTranscriptWindow () {
   }
 }
 
+function createLogWindow () {
+  if (logWindow) {
+    logWindow.show()
+    return
+  }
+  
+  logWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    title: 'Application Logs',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true
+    }
+  })
+  
+  logWindow.loadFile(path.join(__dirname, 'renderer', 'logs.html'))
+  
+  logWindow.on('closed', () => {
+    logWindow = null
+  })
+}
+
+
 function registerHotkey (hotkey) {
   try {
     // Remove any existing shortcut
@@ -412,7 +478,19 @@ app.on('will-quit', () => {
 
 ipcMain.handle('app-version', () => app.getVersion())
 
-// Check if Ollama is installed and running
+ipcMain.handle('open-log-viewer', () => {
+  createLogWindow()
+})
+
+ipcMain.handle('get-logs', () => {
+  return logger.getLogs()
+})
+
+ipcMain.handle('clear-logs', () => {
+  logger.clearLogs()
+  return true
+})
+
 ipcMain.handle('check-ollama', async () => {
   try {
     const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434'
@@ -429,82 +507,111 @@ ipcMain.handle('check-ollama', async () => {
   }
 })
 
-// Settings persistence: store a transcription command template under key 'transcribe_cmd'
-ipcMain.handle('get-settings', () => {
-  const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || ''
-  // Default auto_transcribe to true if not explicitly set to false
-  const auto = store.get('auto_transcribe') !== false
-  const ffmpegPath = store.get('ffmpeg_path') || ''
-  const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434'
-  const ollamaModel = store.get('ollama_model') || 'llama3.2'
-  const ollamaEnabled = store.get('ollama_enabled') === true
-  // Default auto_paste to true if not explicitly set to false
-  const autoPaste = store.get('auto_paste') !== false
-  const polishWhileTranscribe = store.get('polish_while_transcribe') === true
-  // Suggested default command (does not overwrite user setting). This
-  // uses a local `whisper-cli` with the small model and conservative
-  // decoding flags that produced the best observed WER in experiments.
-  const suggested_transcribe_cmd = `whisper-cli -m models/ggml-small.en.bin -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -otxt -`
+// Dependency Management IPC
+ipcMain.handle('check-dependencies', async () => {
+  return await dependencyManager.checkDependencies()
+})
 
-  return {
-    transcribe_cmd: tpl,
-    suggested_transcribe_cmd,
-    hotkey: store.get('hotkey') || process.env.HOTKEY || 'CommandOrControl+Shift+V',
-    auto_transcribe: auto,
-    polish_while_transcribe: polishWhileTranscribe,
-    ffmpeg_path: ffmpegPath,
-    ollama_url: ollamaUrl,
-    ollama_model: ollamaModel,
-    ollama_enabled: ollamaEnabled,
-    auto_paste: autoPaste
+ipcMain.handle('download-dependency', async (event, type, param) => {
+  const onProgress = (progress) => {
+    // If downloading a model, include the model key in the type so UI can track specific downloads
+    const progressType = type === 'model' ? `model:${param}` : type
+    event.sender.send('download-progress', { type: progressType, progress })
+  }
+  
+  try {
+    if (type === 'ffmpeg') {
+      await dependencyManager.installFFmpeg(onProgress)
+    } else if (type === 'whisper') {
+      await dependencyManager.installWhisper(onProgress)
+    } else if (type === 'model') {
+      await dependencyManager.downloadModel(param, onProgress)
+    }
+    return true
+  } catch (e) {
+    console.error('Download failed:', e)
+    throw e
   }
 })
 
-ipcMain.handle('save-settings', (event, settings) => {
-  try {
-    if (!settings || typeof settings !== 'object') return { ok: false, error: 'Invalid settings' }
-    if (typeof settings.transcribe_cmd === 'string') store.set('transcribe_cmd', settings.transcribe_cmd)
-    if (typeof settings.auto_transcribe === 'boolean') store.set('auto_transcribe', settings.auto_transcribe)
-    if (typeof settings.polish_while_transcribe === 'boolean') store.set('polish_while_transcribe', settings.polish_while_transcribe)
-  if (typeof settings.ffmpeg_path === 'string') store.set('ffmpeg_path', settings.ffmpeg_path)
-    if (typeof settings.ollama_url === 'string') store.set('ollama_url', settings.ollama_url)
-    if (typeof settings.ollama_model === 'string') store.set('ollama_model', settings.ollama_model)
-    if (typeof settings.ollama_enabled === 'boolean') store.set('ollama_enabled', settings.ollama_enabled)
-    if (typeof settings.auto_paste === 'boolean') store.set('auto_paste', settings.auto_paste)
-    if (typeof settings.hotkey === 'string' && settings.hotkey.trim().length > 0) {
-      const hk = settings.hotkey.trim()
-      // Attempt to register; if success, save
-      try {
-        const ok = registerHotkey(hk)
-        if (ok) store.set('hotkey', hk)
-        else return { ok: false, error: 'Hotkey registration failed. Try a different combination.' }
-      } catch (e) {
-        return { ok: false, error: 'Hotkey registration failed: ' + String(e) }
-      }
-    }
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, error: String(err) }
+ipcMain.handle('finish-setup', () => {
+  if (mainWindow) {
+    mainWindow.setSize(400, 300)
+    mainWindow.center()
+    mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
   }
+})
+
+ipcMain.handle('get-available-models', async () => {
+  try {
+    const currentModelFilename = store.get('model') || 'ggml-small.en.bin'
+    const modelsList = []
+    
+    // Use the defined MODELS from dependency-manager to return rich info
+    for (const [key, info] of Object.entries(dependencyManager.MODELS)) {
+      const isInstalled = fs.existsSync(path.join(MODELS_DIR, info.filename))
+      modelsList.push({
+        key: key, // e.g. 'tiny.en'
+        filename: info.filename,
+        size: info.size,
+        ram: info.ram,
+        desc: info.desc,
+        installed: isInstalled,
+        active: info.filename === currentModelFilename
+      })
+    }
+    
+    return { models: modelsList, current: currentModelFilename }
+  } catch (e) {
+    console.error('get-available-models error', e)
+    return { models: [], current: '' }
+  }
+})
+
+ipcMain.handle('set-model', async (event, model) => {
+  store.set('model', model)
+  return true
 })
 
 ipcMain.handle('set-hotkey', async (event, hotkey) => {
-  try {
-    if (hotkey === '' || hotkey === null) {
-      // clear hotkey
-      registerHotkey('')
-      store.delete('hotkey')
-      return { ok: true, hotkey: '' }
-    }
-    if (!hotkey || typeof hotkey !== 'string') return { ok: false, error: 'Invalid hotkey' }
-    const hk = hotkey.trim()
-    const ok = registerHotkey(hk)
-    if (!ok) return { ok: false, error: 'Hotkey registration failed' }
-    store.set('hotkey', hk)
-    return { ok: true, hotkey: hk }
-  } catch (err) {
-    return { ok: false, error: String(err) }
+  store.set('hotkey', hotkey)
+  const ok = registerHotkey(hotkey)
+  if (ok) return { ok: true, hotkey }
+  return { ok: false, error: 'Failed to register hotkey' }
+})
+
+ipcMain.handle('open-external', async (event, url) => {
+  await shell.openExternal(url)
+})
+
+ipcMain.handle('get-settings', async () => {
+  return {
+    transcribe_cmd: store.get('transcribe_cmd'),
+    auto_transcribe: store.get('auto_transcribe'),
+    ollama_url: store.get('ollama_url'),
+    ollama_model: store.get('ollama_model'),
+    ollama_enabled: store.get('ollama_enabled'),
+    auto_paste: store.get('auto_paste'),
+    ffmpeg_path: store.get('ffmpeg_path'),
+    hotkey: store.get('hotkey'),
+    model: store.get('model')
   }
+})
+
+ipcMain.handle('save-settings', async (event, settings) => {
+  if (settings.transcribe_cmd !== undefined) store.set('transcribe_cmd', settings.transcribe_cmd)
+  if (settings.auto_transcribe !== undefined) store.set('auto_transcribe', settings.auto_transcribe)
+  if (settings.ollama_url !== undefined) store.set('ollama_url', settings.ollama_url)
+  if (settings.ollama_model !== undefined) store.set('ollama_model', settings.ollama_model)
+  if (settings.ollama_enabled !== undefined) store.set('ollama_enabled', settings.ollama_enabled)
+  if (settings.auto_paste !== undefined) store.set('auto_paste', settings.auto_paste)
+  if (settings.ffmpeg_path !== undefined) store.set('ffmpeg_path', settings.ffmpeg_path)
+  if (settings.hotkey !== undefined) {
+    store.set('hotkey', settings.hotkey)
+    registerHotkey(settings.hotkey)
+  }
+  if (settings.model !== undefined) store.set('model', settings.model)
+  return true
 })
 
 // Helper to handle recording cancellation
@@ -571,7 +678,14 @@ ipcMain.handle('close-transcript-window', async () => {
 // Test the configured transcription command. This will try to locate the binary and check the model file if present.
 ipcMain.handle('test-transcribe', async (event) => {
   try {
-    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || ''
+    let tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD
+    
+    if (!tpl) {
+       const modelName = store.get('model') || 'ggml-small.en.bin'
+       const modelPath = path.join(MODELS_DIR, modelName)
+       tpl = `whisper-cli -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -otxt -`
+    }
+
     if (!tpl) return { ok: false, error: 'No transcription command configured' }
 
     // Attempt to extract the binary (first token) and -m model path
@@ -1064,9 +1178,13 @@ async function transcribeWebm (webmPath, options = {}) {
       })
     })
 
-    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || SUGGESTED_TRANSCRIBE_CMD
+    let tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD
+    
     if (!tpl) {
-      return { ok: false, error: 'No transcription command configured. Set TRANSCRIBE_CMD env variable or save settings in app.' }
+       const modelName = store.get('model') || 'ggml-small.en.bin'
+       const modelPath = path.join(MODELS_DIR, modelName)
+       // Use absolute path for model to be safe
+       tpl = `whisper-cli -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -otxt -`
     }
 
     const cmd = tpl.replace(/{wav}/g, JSON.stringify(finalWav))
@@ -1118,7 +1236,16 @@ async function transcribeWebm (webmPath, options = {}) {
 async function transcribeWav (wavPath, options = {}) {
   try {
     if (!wavPath || typeof wavPath !== 'string') return { ok: false, error: 'Invalid wav path' }
-    const tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || SUGGESTED_TRANSCRIBE_CMD
+    
+    let tpl = store.get('transcribe_cmd') || process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD
+    
+    if (!tpl) {
+       const modelName = store.get('model') || 'ggml-small.en.bin'
+       const modelPath = path.join(MODELS_DIR, modelName)
+       // Use absolute path for model to be safe
+       tpl = `whisper-cli -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -otxt -`
+    }
+
     console.log('Transcribe command template:', tpl)
     if (!tpl) {
       return { ok: false, error: 'No transcription command configured. Set TRANSCRIBE_CMD env variable or save settings in app.' }

@@ -72,6 +72,14 @@
             <div style="margin-top:4px; margin-left:26px; color:#999; font-size:12px">Automatically paste transcripts after recording completes</div>
           </div>
 
+          <div style="margin-bottom:12px;">
+            <label style="font-size:14px; color:#666;">Whisper Model</label>
+            <div id="modelListContainer" style="margin-top:6px; border:1px solid #e6e6e6; border-radius:6px; background:#fff; overflow:hidden; max-height: 200px; overflow-y: auto;">
+               <div style="padding:12px; text-align:center; color:#999;">Loading models...</div>
+            </div>
+            <div style="margin-top:4px; color:#999; font-size:12px">Select a model for transcription (larger = more accurate but slower)</div>
+          </div>
+
           <div style="margin-bottom:12px;" id="polishSection">
             <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
               <input id="ollamaEnabled" type="checkbox" style="width:18px; height:18px; cursor:pointer;" />
@@ -111,9 +119,12 @@
               A quick voice-to-text utility using Whisper AI
             </div>
             <div style="margin-bottom:8px;">
+              Created by <a href="#" id="authorLink" style="color:#0b79ff; text-decoration:none;">Dipesh Sukhani</a>
+            </div>
+            <div style="margin-bottom:8px;">
               <a href="#" id="githubLink" style="color:#0b79ff; text-decoration:none;">View on GitHub →</a>
             </div>
-            <div style="margin-top:12px; padding:10px; background:#f9f9f9; border-radius:6px; font-size:12px;">
+            <div style="margin-top:12px; padding:10px; background:#f9f9f9; border-radius:6px; font-size:12px; display:none;">
               <div style="margin-bottom:4px;"><strong>Dependencies Status</strong></div>
               <div id="depStatus" style="color:#999;">Checking...</div>
             </div>
@@ -158,6 +169,7 @@
         const closeSettingsBtnBottom = document.getElementById('closeSettingsBtnBottom');
         const viewLogsBtn = document.getElementById('viewLogsBtn');
         const githubLink = document.getElementById('githubLink');
+        const authorLink = document.getElementById('authorLink');
         const appVersion = document.getElementById('appVersion');
         const depStatus = document.getElementById('depStatus');
         
@@ -207,8 +219,9 @@
         
         if(viewLogsBtn) {
           viewLogsBtn.addEventListener('click', () => {
-            // TODO: Open log viewer window
-            alert('Log viewer will be implemented in next update');
+            if (window.electronAPI && window.electronAPI.openLogViewer) {
+              window.electronAPI.openLogViewer();
+            }
           });
         }
         
@@ -216,7 +229,16 @@
           githubLink.addEventListener('click', (e) => {
             e.preventDefault();
             if (window.electronAPI && window.electronAPI.openExternal) {
-              window.electronAPI.openExternal('https://github.com/yourusername/voice-hotkey');
+              window.electronAPI.openExternal('https://github.com/amateur-dev/local-hotkey-voice-mac-app');
+            }
+          });
+        }
+
+        if(authorLink) {
+          authorLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.electronAPI && window.electronAPI.openExternal) {
+              window.electronAPI.openExternal('https://dipeshsukhani.dev');
             }
           });
         }
