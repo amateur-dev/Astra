@@ -84,14 +84,30 @@ function createWindow () {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
 }
 
+// Define tray icons
+const TRAY_ICON_DIR = path.join(__dirname, 'renderer', 'icons')
+
+const makeTrayImage = (fileName) => {
+  const imagePath = path.join(TRAY_ICON_DIR, fileName)
+  const img = nativeImage.createFromPath(imagePath)
+  if (process.platform === 'darwin') {
+    img.setTemplateImage(true) // macOS template image (auto invert)
+  }
+  return img
+}
+
+// Preload tray images
+const trayImages = {
+  idle: makeTrayImage('tray-icon-template.png'),
+  recording: makeTrayImage('tray-icon-recording-template.png'),
+  processing: makeTrayImage('tray-icon-processing-template.png')
+}
+
 function createTray () {
-  // macOS tray icons should use Template naming convention for automatic theme adaptation
-  // Template images auto-invert for dark/light mode
-  const iconPath = path.join(__dirname, 'renderer', 'tray-iconTemplate.png')
-  const icon = nativeImage.createFromPath(iconPath)
-  icon.setTemplateImage(true) // Tell macOS this is a template image
-  tray = new Tray(icon)
-  updateTrayIcon('idle') // Start with idle state
+  // Start with idle image
+  tray = new Tray(trayImages.idle)
+  updateTrayIcon('idle')
+  
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Open', click: () => { mainWindow.show() } },
     { label: 'Quit', click: () => { app.quit() } }
@@ -103,12 +119,15 @@ function createTray () {
 function updateTrayIcon(state) {
   if (!tray) return
   
-  // Update tooltip to show current state
-  // Template icons don't change color, so we use tooltip for status indication
+  // Update icon image
+  const img = trayImages[state] || trayImages.idle
+  tray.setImage(img)
+  
+  // Update tooltip
   const tooltips = {
-    idle: 'Voice Hotkey - Ready ⚪',
-    recording: 'Voice Hotkey - Recording 🔴',
-    processing: 'Voice Hotkey - Processing ⚙️'
+    idle: 'Voice Hotkey - Ready',
+    recording: 'Voice Hotkey - Recording',
+    processing: 'Voice Hotkey - Processing'
   }
   tray.setToolTip(tooltips[state] || 'Voice Hotkey')
   console.log(`Tray state updated to: ${state}`)
