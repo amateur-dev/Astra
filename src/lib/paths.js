@@ -11,12 +11,23 @@ try {
 
 const BIN_DIR = path.join(userDataPath, 'bin');
 const MODELS_DIR = path.join(userDataPath, 'models');
+const fs = require('fs');
+
+function getBinaryPath(folderName, fileName) {
+  // 1. Check bundled resources (Production)
+  if (app.isPackaged) {
+    const bundledPath = path.join(process.resourcesPath, folderName, fileName);
+    if (fs.existsSync(bundledPath)) return bundledPath;
+  }
+  // 2. Check userData bin (Downloaded)
+  return path.join(BIN_DIR, fileName);
+}
 
 module.exports = {
   userDataPath,
   BIN_DIR,
   MODELS_DIR,
-  FFMPEG_PATH: path.join(BIN_DIR, 'ffmpeg'),
-  WHISPER_PATH: path.join(BIN_DIR, 'whisper-cli'), // We'll rename it to this after download
+  FFMPEG_PATH: getBinaryPath('ffmpeg', 'ffmpeg'),
+  WHISPER_PATH: getBinaryPath('whisper', 'whisper-cli'),
   getModelPath: (modelName) => path.join(MODELS_DIR, modelName)
 };
