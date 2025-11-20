@@ -94,6 +94,13 @@ Click the "Settings" button in the main window (accessible via the Tray icon -> 
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development instructions.
 
+## Feedback & Support
+
+If you encounter any bugs, have feature requests, or need assistance, please open an issue on our GitHub repository:
+
+-   **Report a Bug**: [Open a new issue](https://github.com/amateur-dev/local-hotkey-voice-mac-app/issues/new?labels=bug)
+-   **Request a Feature**: [Open a new issue](https://github.com/amateur-dev/local-hotkey-voice-mac-app/issues/new?labels=enhancement)
+
 ## Author
 
 **Dipesh Sukhani**
