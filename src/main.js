@@ -151,7 +151,13 @@ function createTray () {
   updateTrayIcon('idle')
   
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Open', click: () => { mainWindow.show() } },
+    { label: 'Open', click: () => { 
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show() 
+      } else {
+        createWindow()
+      }
+    }},
     { label: 'Quit', click: () => { app.quit() } }
   ])
   tray.setToolTip('Voice Hotkey')
@@ -423,7 +429,7 @@ function registerHotkey (hotkey) {
         }
       }
       
-      if (mainWindow && mainWindow.webContents) {
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
         mainWindow.webContents.send('record-toggle', isRecording)
         console.log('Sent record-toggle event to renderer')
         
