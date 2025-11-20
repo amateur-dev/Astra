@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Application Logs</title>
+    <link rel="stylesheet" href="./ui/tokens.css" />
+    <style>
+      body { padding: 0; margin: 0; background: #f6f7fb; font-family: monospace; display: flex; flex-direction: column; height: 100vh; }
+      .toolbar { padding: 12px; background: #fff; border-bottom: 1px solid #e6e6e6; display: flex; justify-content: space-between; align-items: center; }
+      .log-container { flex: 1; overflow: auto; padding: 12px; background: #1e1e1e; color: #d4d4d4; font-size: 12px; line-height: 1.4; }
+      .log-line { white-space: pre-wrap; margin-bottom: 2px; }
+      .log-info { color: #d4d4d4; }
+      .log-warn { color: #cca700; }
+      .log-error { color: #f48771; }
+      .btn { padding: 6px 12px; border-radius: 6px; border: 1px solid #e6e6e6; background: #fff; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; }
+      .btn:hover { background: #f9f9f9; }
+      .btn-danger { color: #d32f2f; border-color: #ffcdd2; background: #ffebee; }
+      .btn-danger:hover { background: #ffcdd2; }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 600;">Logs</div>
+      <div style="display: flex; gap: 8px;">
+        <button id="refreshBtn" class="btn">Refresh</button>
+        <button id="copyBtn" class="btn">Copy All</button>
+        <button id="clearBtn" class="btn btn-danger">Clear Logs</button>
+      </div>
+    </div>
+    <div id="logContainer" class="log-container"></div>
+    <script src="logs.js"></script>
+  </body>
+</html>

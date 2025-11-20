@@ -1,6 +1,6 @@
 {
   "name": "voice-hotkey-electron",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Minimal Electron-based voice-to-text tray app (rewrite)",
   "main": "src/main.js",
   "scripts": {
@@ -11,7 +11,11 @@
   "dist:arm64": "electron-builder --mac --arm64",
   "dist:universal": "electron-builder --mac --universal"
   },
-  "author": "",
+  "author": {
+    "name": "Dipesh Sukhani",
+    "email": "me@dipeshsukhani.dev",
+    "url": "https://dipeshsukhani.dev"
+  },
   "license": "MIT",
   "devDependencies": {
     "electron": "^25.0.0",

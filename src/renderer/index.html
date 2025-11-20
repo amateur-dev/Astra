@@ -36,7 +36,7 @@
           <button id="recordBtn" class="btn btn-primary">Start Recording</button>
           <button id="clearBtn" class="btn" disabled>Clear & Re-Record</button>
         </div>
-        <div style="text-align:center; margin-top:8px; color:#888; font-size:13px">Hotkey: ⌘ + ⇧ + R</div>
+        <div style="text-align:center; margin-top:8px; color:#888; font-size:13px"><span id="hotkeyLabel">Hotkey: CommandOrControl+Shift+V</span></div>
       </div>
 
   <!-- Transcript will be injected into the Record card when available; no right-column shown by default -->
@@ -44,71 +44,119 @@
 
     <!-- Settings modal (hidden by default). Inputs keep their IDs so renderer.js bindings continue to work. -->
     <div id="settingsModal" style="display:none; position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.45); align-items:center; justify-content:center;">
-      <div style="background:#fff; padding:18px; width:560px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.25); margin:40px auto; max-height:80vh; overflow:auto;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div style="background:#fff; padding:24px; width:520px; border-radius:12px; box-shadow:0 6px 18px rgba(0,0,0,0.25); margin:40px auto; max-height:80vh; overflow:auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e6e6e6; padding-bottom:16px;">
           <h3 style="margin:0">Settings</h3>
-          <button id="closeSettingsBtn" class="btn">Close</button>
+          <button id="closeSettingsBtn" class="btn">✕</button>
         </div>
 
-        <div style="margin-top:8px">
-          <label>Whisper binary path:<br/>
-            <input id="whisperBin" type="text" style="width:100%" placeholder="/path/to/whisper-cli" />
-          </label>
-        </div>
-        <div style="margin-top:8px">
-          <label>FFmpeg path (optional):<br/>
-            <input id="ffmpegPath" type="text" style="width:100%" placeholder="/opt/homebrew/bin/ffmpeg or leave blank to use bundled" />
-          </label>
-        </div>
-        <div style="margin-top:8px">
-          <label>Model path (-m):<br/>
-            <input id="modelPath" type="text" style="width:100%" placeholder="/Users/you/models/ggml-tiny.en.bin" />
-          </label>
-        </div>
-
-        <div style="margin-top:12px">
-          <label>Download prebuilt ggml models:</label>
-          <div style="display:flex; gap:8px; margin-top:6px;">
-            <button id="downloadTinyBtn" class="btn">Download tiny (smallest)</button>
-            <button id="downloadSmallBtn" class="btn">Download small</button>
-            <button id="downloadBaseBtn" class="btn">Download base</button>
+        <!-- Recording Section -->
+        <div style="margin-top:20px;">
+          <h4 style="margin:0 0 12px 0; font-size:15px; color:#333;">Recording</h4>
+          
+          <div style="margin-bottom:12px;">
+            <label style="font-size:14px; color:#666;">Global Hotkey</label>
+            <div style="display:flex; gap:8px; margin-top:6px; align-items:center;">
+              <input id="hotkeyInput" type="text" style="flex:1; padding:8px; border:1px solid #e6e6e6; border-radius:6px; font-family:monospace;" placeholder="CommandOrControl+Shift+V" />
+              <button id="setHotkeyBtn" class="btn" style="white-space:nowrap;">Set Hotkey</button>
+              <button id="clearHotkeyBtn" class="btn" style="white-space:nowrap;">Clear</button>
+            </div>
+            <div style="margin-top:4px; color:#999; font-size:12px">Press keys to set hotkey, or type manually</div>
           </div>
-          <div id="downloadStatus" style="margin-top:6px; white-space:nowrap"></div>
-          <div id="downloadProgress" style="width:100%; height:8px; background:#eee; border-radius:4px; display:none; margin-top:6px"><div id="downloadProgressBar" style="height:100%; width:0%; background:linear-gradient(90deg,#4caf50,#8bc34a); border-radius:4px"></div></div>
+
+          <div style="margin-bottom:12px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input id="autoPaste" type="checkbox" style="width:18px; height:18px; cursor:pointer;" />
+              <span style="font-size:14px; color:#333;">Auto-paste transcripts into active app</span>
+            </label>
+            <div style="margin-top:4px; margin-left:26px; color:#999; font-size:12px">Automatically paste transcripts after recording completes</div>
+          </div>
+
+          <div style="margin-bottom:12px;">
+            <label style="font-size:14px; color:#666;">Whisper Model</label>
+            <div id="modelListContainer" style="margin-top:6px; border:1px solid #e6e6e6; border-radius:6px; background:#fff; overflow:hidden; max-height: 200px; overflow-y: auto;">
+               <div style="padding:12px; text-align:center; color:#999;">Loading models...</div>
+            </div>
+            <div style="margin-top:4px; color:#999; font-size:12px">Select a model for transcription (larger = more accurate but slower)</div>
+          </div>
+
+          <div style="margin-bottom:12px;" id="polishSection">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input id="ollamaEnabled" type="checkbox" style="width:18px; height:18px; cursor:pointer;" />
+              <span style="font-size:14px; color:#333;">Polish transcripts with Ollama</span>
+              <span style="font-size:11px; color:#999; background:#f0f0f0; padding:2px 6px; border-radius:4px;">Optional</span>
+            </label>
+            <div style="margin-top:4px; margin-left:26px; color:#999; font-size:12px">Requires Ollama to be installed on your system</div>
+          </div>
         </div>
 
-        <div style="margin-top:12px">
-          <label><input id="autoTranscribe" type="checkbox" /> Auto-transcribe after saving recording</label>
-        </div>
-        <div style="margin-top:8px">
-          <label><input id="ollamaEnabled" type="checkbox" /> Polish transcripts with Ollama (experimental)</label>
-        </div>
-        <div style="margin-top:8px">
-          <label>Ollama URL:<br/>
-            <input id="ollamaUrl" type="text" style="width:100%" placeholder="http://localhost:11434" />
-          </label>
-        </div>
-        <div style="margin-top:8px">
-          <label>Ollama Model:<br/>
-            <input id="ollamaModel" type="text" style="width:100%" placeholder="llama3.2" />
-          </label>
-        </div>
-        <div style="margin-top:8px">
-          <label><input id="autoPaste" type="checkbox" /> Auto-paste into front app after transcribe</label>
+        <!-- System Section -->
+        <div style="margin-top:24px; padding-top:20px; border-top:1px solid #e6e6e6;">
+          <h4 style="margin:0 0 12px 0; font-size:15px; color:#333;">System</h4>
+          
+          <div style="margin-bottom:12px;">
+            <label style="font-size:14px; color:#666; display:block; margin-bottom:6px;">Microphone Permission</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <span id="micStatus" style="font-size:13px; color:#666;">unknown</span>
+              <button id="openMicSettingsBtn" class="btn" style="white-space:nowrap;">Open Settings</button>
+            </div>
+          </div>
+
+          <div style="margin-bottom:12px;">
+            <button id="viewLogsBtn" class="btn" style="width:100%;">View Logs</button>
+          </div>
         </div>
 
-        <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
-          <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
-          <button id="testSettingsBtn" class="btn">Test Settings</button>
-          <button id="recheckWhisperBtn" class="btn">Re-check Whisper</button>
+        <!-- About Section -->
+        <div style="margin-top:24px; padding-top:20px; border-top:1px solid #e6e6e6;">
+          <h4 style="margin:0 0 12px 0; font-size:15px; color:#333;">About</h4>
+          
+          <div style="font-size:13px; color:#666; line-height:1.6;">
+            <div style="margin-bottom:8px;">
+              <strong>Voice Hotkey</strong> <span id="appVersion" style="color:#999;">v2.1.0</span>
+            </div>
+            <div style="margin-bottom:8px;">
+              A quick voice-to-text utility using Whisper AI
+            </div>
+            <div style="margin-bottom:8px;">
+              Created by <a href="#" id="authorLink" style="color:#0b79ff; text-decoration:none;">Dipesh Sukhani</a>
+            </div>
+            <div style="margin-bottom:8px;">
+              <a href="#" id="githubLink" style="color:#0b79ff; text-decoration:none;">View on GitHub →</a>
+            </div>
+            <div style="margin-top:12px; padding:10px; background:#f9f9f9; border-radius:6px; font-size:12px; display:none;">
+              <div style="margin-bottom:4px;"><strong>Dependencies Status</strong></div>
+              <div id="depStatus" style="color:#999;">Checking...</div>
+            </div>
+          </div>
         </div>
-        <div style="margin-top:8px">
-          <label>Microphone permission:<br/>
-            <span id="micStatus">unknown</span>
-            <button id="openMicSettingsBtn" class="btn" style="margin-left:8px">Open Microphone Settings</button>
-          </label>
+
+        <!-- Hidden fields for backward compatibility - kept for renderer.js but not shown -->
+        <div style="display:none;">
+          <input id="whisperBin" type="text" />
+          <input id="ffmpegPath" type="text" />
+          <input id="modelPath" type="text" />
+          <input id="suggestedCmd" type="text" />
+          <input id="autoTranscribe" type="checkbox" checked />
+          <input id="polishWhileTranscribe" type="checkbox" />
+          <input id="ollamaUrl" type="text" />
+          <input id="ollamaModel" type="text" />
+          <button id="saveSettingsBtn"></button>
+          <button id="testSettingsBtn"></button>
+          <button id="recheckWhisperBtn"></button>
+          <button id="useSuggestedBtn"></button>
+          <button id="copySuggestedBtn"></button>
+          <button id="downloadTinyBtn"></button>
+          <button id="downloadSmallBtn"></button>
+          <button id="downloadBaseBtn"></button>
+          <div id="downloadStatus"></div>
+          <div id="downloadProgress"><div id="downloadProgressBar"></div></div>
+          <div id="settingsResult"></div>
         </div>
-        <div id="settingsResult" style="margin-top:8px; white-space:pre-wrap"></div>
+
+        <div style="margin-top:24px; padding-top:16px; border-top:1px solid #e6e6e6; display:flex; justify-content:flex-end;">
+          <button id="closeSettingsBtnBottom" class="btn btn-primary">Done</button>
+        </div>
       </div>
     </div>
 
@@ -118,10 +166,90 @@
         const settingsBtn = document.getElementById('settingsBtn');
         const settingsModal = document.getElementById('settingsModal');
         const closeSettingsBtn = document.getElementById('closeSettingsBtn');
-        function openSettings(){ settingsModal.style.display='flex'; }
+        const closeSettingsBtnBottom = document.getElementById('closeSettingsBtnBottom');
+        const viewLogsBtn = document.getElementById('viewLogsBtn');
+        const githubLink = document.getElementById('githubLink');
+        const authorLink = document.getElementById('authorLink');
+        const appVersion = document.getElementById('appVersion');
+        const depStatus = document.getElementById('depStatus');
+        
+        function openSettings(){ 
+          settingsModal.style.display='flex';
+          // Check dependencies status
+          checkDependencies();
+          // Check Ollama and hide/show polish section
+          checkOllama();
+        }
+        
         function closeSettings(){ settingsModal.style.display='none'; }
+        
+        function checkDependencies() {
+          // This will be populated by renderer.js or main process
+          if (window.electronAPI && window.electronAPI.checkDependencies) {
+            window.electronAPI.checkDependencies().then(status => {
+              depStatus.innerHTML = status;
+            });
+          } else {
+            depStatus.textContent = 'Whisper: ✓ | FFmpeg: ✓ | Model: ✓';
+          }
+        }
+        
+        function checkOllama() {
+          const polishSection = document.getElementById('polishSection');
+          if (window.electronAPI && window.electronAPI.checkOllama) {
+            window.electronAPI.checkOllama().then(result => {
+              if (result.running) {
+                polishSection.style.display = 'block';
+              } else {
+                polishSection.style.display = 'none';
+                // Also uncheck the polish checkbox if Ollama is not available
+                const ollamaCheckbox = document.getElementById('ollamaEnabled');
+                if (ollamaCheckbox) ollamaCheckbox.checked = false;
+              }
+            }).catch(err => {
+              console.error('Failed to check Ollama:', err);
+              polishSection.style.display = 'none';
+            });
+          }
+        }
+        
         if(settingsBtn) settingsBtn.addEventListener('click', openSettings);
         if(closeSettingsBtn) closeSettingsBtn.addEventListener('click', closeSettings);
+        if(closeSettingsBtnBottom) closeSettingsBtnBottom.addEventListener('click', closeSettings);
+        
+        if(viewLogsBtn) {
+          viewLogsBtn.addEventListener('click', () => {
+            if (window.electronAPI && window.electronAPI.openLogViewer) {
+              window.electronAPI.openLogViewer();
+            }
+          });
+        }
+        
+        if(githubLink) {
+          githubLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.electronAPI && window.electronAPI.openExternal) {
+              window.electronAPI.openExternal('https://github.com/amateur-dev/local-hotkey-voice-mac-app');
+            }
+          });
+        }
+
+        if(authorLink) {
+          authorLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.electronAPI && window.electronAPI.openExternal) {
+              window.electronAPI.openExternal('https://dipeshsukhani.dev');
+            }
+          });
+        }
+        
+        // Get app version
+        if(window.electronAPI && window.electronAPI.getAppVersion) {
+          window.electronAPI.getAppVersion().then(version => {
+            appVersion.textContent = 'v' + version;
+          });
+        }
+        
         // Close modal on ESC
         document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeSettings(); });
       })();
