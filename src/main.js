@@ -519,9 +519,17 @@ async function handleCancelRecording() {
     globalShortcut.unregister('Escape') // Unregister Escape shortcut
     hideRecordingWindow()
     updateTrayIcon('idle')
+    
+    // Stop recording in main window (stops actual recording)
     if (mainWindow && mainWindow.webContents) {
       mainWindow.webContents.send('record-toggle', false)
     }
+    
+    // Stop recording in recording window (stops waveform and releases mic)
+    if (recordingWindow && recordingWindow.webContents) {
+      recordingWindow.webContents.send('recording-stop')
+    }
+    
     return { ok: true }
   } catch (err) {
     console.error('handleCancelRecording error:', err)
