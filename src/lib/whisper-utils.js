@@ -69,3 +69,35 @@ async function checkWhisperAvailability (tplOverride) {
 }
 
 module.exports = { checkWhisperAvailability }
+
+// Given an error (Error instance or stderr string) produced by running the
+// transcription command, return a friendlier, actionable error message
+// when we can detect common runtime failures (eg. macOS dyld missing dylib).
+function formatTranscriptionError (errLike) {
+  try {
+    const text = typeof errLike === 'string' ? errLike : (errLike && (errLike.stderr || errLike.message || String(errLike)))
+    if (!text) return String(errLike)
+
+    // Common macOS dynamic loader failure pattern. Detect and offer guidance.
+    if (text.includes('Library not loaded:') || text.includes('dyld: Library not loaded')) {
+      // Try to extract the library name if present
+      const m = text.match(/Library not loaded:\s*(\S+)/)
+      const lib = m ? m[1] : 'a shared library (eg. libwhisper)'
+      const help = `The transcription binary failed to start because ${lib} could not be loaded. This usually means the packaged whisper binary is missing its dependent library (for example libwhisper.1.dylib) or the binary was built with a developer-local rpath.\n\n` +
+        "Suggested actions:\n" +
+        "  • If you installed whisper.cpp yourself, ensure libwhisper is present and the binary's rpath/installation is correct.\n" +
+        "  • Alternatively set the TRANSCRIBE_CMD (or app setting) to point to a working whisper-cli on your PATH.\n" +
+        "  • If you downloaded a packaged application, try reinstalling a build that includes the required libwhisper.* library.\n\n" +
+        "Original error:\n" + text
+
+      return help
+    }
+
+    // Default fallback: return original error as a string
+    return String(text)
+  } catch (e) {
+    return String(errLike)
+  }
+}
+
+module.exports = Object.assign(module.exports, { formatTranscriptionError })

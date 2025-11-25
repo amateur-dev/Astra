@@ -4,6 +4,7 @@ const cp = require('node:child_process')
 
 // We'll require the module under test
 const { checkWhisperAvailability } = require('../src/lib/whisper-utils')
+const { formatTranscriptionError } = require('../src/lib/whisper-utils')
 
 // Helper to temporarily stub child_process.exec
 function withExecStub (stubImpl, fn) {
@@ -31,6 +32,28 @@ test('checkWhisperAvailability returns ok when which returns path', async () => 
 
 test('checkWhisperAvailability returns not-ok when which fails', async () => {
   const stub = (cmd, cb) => { cb(new Error('not found'), '') }
-  const res = await withExecStub(stub, () => checkWhisperAvailability())
-  assert.equal(res.ok, false)
+  // Also ensure fs.existsSync doesn't find common absolute paths on this machine
+  const fs = require('fs')
+  const origExists = fs.existsSync
+  fs.existsSync = () => false
+  try {
+    const res = await withExecStub(stub, () => checkWhisperAvailability())
+    assert.equal(res.ok, false)
+  } finally {
+    fs.existsSync = origExists
+  }
+})
+
+test('formatTranscriptionError recognizes macOS dyld missing library and returns helpful message', () => {
+  const stderr = `dyld[84605]: Library not loaded: @rpath/libwhisper.1.dylib\n  Referenced from: /Applications/voice-hotkey-electron.app/Contents/Resources/whisper/whisper-cli\n  Reason: tried: '/Users/dk_sukhani/whisper.cpp/build/src/libwhisper.1.dylib' (no such file)`
+  const out = formatTranscriptionError(stderr)
+  assert.ok(out.includes('could not be loaded'))
+  assert.ok(out.includes('libwhisper'))
+  assert.ok(out.includes('Suggested actions'))
+})
+
+test('formatTranscriptionError returns string for other errors', () => {
+  const err = new Error('some other runtime error')
+  const out = formatTranscriptionError(err)
+  assert.ok(out.includes('some other runtime error'))
 })

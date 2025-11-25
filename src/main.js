@@ -13,6 +13,7 @@ const store = new Store({
 const logger = require('./lib/logger')
 const dependencyManager = require('./lib/dependency-manager')
 const { BIN_DIR, MODELS_DIR, WHISPER_PATH } = require('./lib/paths')
+const { formatTranscriptionError } = require('./lib/whisper-utils')
 const { shell } = require('electron')
 
 // Add BIN_DIR to PATH so child_process can find ffmpeg/whisper
@@ -1207,7 +1208,9 @@ async function transcribeWebm (webmPath, options = {}) {
       exec(cmd, { maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (err) {
           console.error('transcription command failed', err, stderr)
-          return reject(new Error('transcription failed: ' + (stderr || err.message)))
+          // Try to produce a clear, actionable error message for common failures
+          const formatted = formatTranscriptionError(stderr || err)
+          return reject(new Error('transcription failed: ' + formatted))
         }
         resolve(stdout.toString())
       })
@@ -1297,7 +1300,8 @@ async function transcribeWav (wavPath, options = {}) {
       exec(cmd, { maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (err) {
           console.error('transcription command failed', err, stderr)
-          return reject(new Error('transcription failed: ' + (stderr || err.message)))
+          const formatted = formatTranscriptionError(stderr || err)
+          return reject(new Error('transcription failed: ' + formatted))
         }
         resolve(stdout.toString())
       })

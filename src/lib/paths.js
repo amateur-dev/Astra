@@ -15,7 +15,7 @@ const fs = require('fs');
 
 function getBinaryPath(folderName, fileName) {
   // 1. Check bundled resources (Production)
-  if (app.isPackaged) {
+  if (app && app.isPackaged) {
     const bundledPath = path.join(process.resourcesPath, folderName, fileName);
     if (fs.existsSync(bundledPath)) return bundledPath;
   } else {
