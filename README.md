@@ -115,6 +115,14 @@ Click the "Settings" button in the main window (accessible via the Tray icon -> 
 -   **Paste fails**: Ensure the app (or Terminal/VS Code if running in dev) has **Accessibility** permissions in macOS System Settings -> Privacy & Security.
 -   **Logs**: Go to Settings -> View Logs to see detailed application logs for debugging.
 
+-   **macOS: "Library not loaded: @rpath/libwhisper.1.dylib" (dyld) when auto-transcribing**
+    -   If you see an error mentioning dyld / libwhisper when the app attempts to run the bundled `whisper-cli`, it means the binary could not find a dependent shared library at runtime. This usually happens when the `whisper-cli` binary was built or packaged with a developer-local rpath and the corresponding `libwhisper.*` dylib is not present or has an incorrect path in the application bundle.
+    -   Suggested workarounds:
+        1. Set the TRANSCRIBE_CMD (or app setting) to a working system `whisper-cli` binary (e.g., `/opt/homebrew/bin/whisper-cli`) that resolves its dependencies correctly.
+        2. Rebuild or repackage the application so that `libwhisper.*` dylib is included in the app resources and the binary uses a relative rpath (e.g. `@loader_path` or `@executable_path`) or is statically linked.
+        3. As a quick dev test, running `otool -L /path/to/whisper-cli` on macOS will show which libraries are referenced; use `install_name_tool` to adjust rpaths when packaging.
+
+
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development instructions.
