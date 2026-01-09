@@ -2,7 +2,7 @@ const assert = require('node:assert').strict
 const { test } = require('node:test')
 const fs = require('node:fs')
 const path = require('node:path')
-const { exec } = require('node:child_process')
+const { execFile } = require('node:child_process')
 const { cleanTranscript } = require('../src/lib/transcript-utils')
 
 // Simple word-level Levenshtein edit distance
@@ -48,10 +48,27 @@ function getTranscribeCmdTemplate() {
   return process.env.TRANSCRIBE_CMD || process.env.WHISPER_CMD || ''
 }
 
+// Parse a command template into executable and arguments
+// Supports simple space-separated commands with {wav} placeholder
+function parseCommandTemplate(template, wavPath) {
+  // Split by spaces, handling simple quoting
+  const parts = template.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || []
+  return parts.map(part => {
+    // Remove surrounding quotes and replace {wav} placeholder
+    const unquoted = part.replace(/^["']|["']$/g, '')
+    return unquoted.replace(/{wav}/g, wavPath)
+  })
+}
+
 function runTranscription(template, wavPath) {
   return new Promise((resolve, reject) => {
-    const cmd = template.replace(/{wav}/g, JSON.stringify(wavPath))
-    exec(cmd, { maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const args = parseCommandTemplate(template, wavPath)
+    if (args.length === 0) {
+      return reject(new Error('Empty command template'))
+    }
+    const cmd = args[0]
+    const cmdArgs = args.slice(1)
+    execFile(cmd, cmdArgs, { maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) return reject(new Error((stderr || err.message).toString()))
       resolve(stdout.toString())
     })

@@ -8,12 +8,12 @@
   },
   "main": "src/main.js",
   "scripts": {
-  "start": "electron .",
-  "test": "node --test",
-  "build": "electron-builder --mac",
-  "dist": "electron-builder --mac --x64",
-  "dist:arm64": "electron-builder --mac --arm64",
-  "dist:universal": "electron-builder --mac --universal"
+    "start": "electron .",
+    "test": "node --test",
+    "build": "electron-builder --mac",
+    "dist": "electron-builder --mac --x64",
+    "dist:arm64": "electron-builder --mac --arm64",
+    "dist:universal": "electron-builder --mac --universal"
   },
   "author": {
     "name": "Dipesh Sukhani",
@@ -22,8 +22,8 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "electron": "^25.0.0",
-    "electron-builder": "^24.0.0"
+    "electron": "^39.2.7",
+    "electron-builder": "^26.4.0"
   },
   "dependencies": {
     "electron-store": "^8.0.0",
@@ -52,12 +52,16 @@
       {
         "from": "build/ffmpeg",
         "to": "ffmpeg",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "build/whisper",
         "to": "whisper",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ]
   }
