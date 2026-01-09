@@ -36,8 +36,20 @@ The app relies on the following external binaries for its core functionality:
 3.  **Setup Binaries:**
     -   **FFmpeg**: Install via Homebrew (`brew install ffmpeg`) or place the binary in `build/ffmpeg/ffmpeg`.
     -   **Whisper**:
-        -   Build from [whisper.cpp](https://github.com/ggerganov/whisper.cpp).
-        -   Place the `whisper-cli` binary in your PATH or configure the path in the app settings.
+        -   Build from [whisper.cpp](https://github.com/ggerganov/whisper.cpp) using the following commands:
+            ```bash
+            # Clone whisper.cpp
+            git clone https://github.com/ggerganov/whisper.cpp.git
+            cd whisper.cpp
+            
+            # Build with CMake (static build to avoid rpath issues)
+            cmake -B build -DWHISPER_METAL=ON -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_EXAMPLES=ON
+            cmake --build build --config Release
+            
+            # The binary will be at: build/bin/whisper-cli
+            ```
+        -   Copy the `whisper-cli` binary to `build/whisper/whisper-cli` in this project, or place it in your PATH.
+        -   **Important**: Always build with `-DBUILD_SHARED_LIBS=OFF` to avoid hardcoded library paths that won't work on other machines.
     -   **Models**:
         -   Download a model (e.g., `ggml-small.en.bin`) from Hugging Face or the whisper.cpp repo.
         -   Place it in the `models/` directory.

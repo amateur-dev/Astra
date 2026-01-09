@@ -1,0 +1,3 @@
+# This directory is populated during CI builds with whisper-cli binary.
+# The binary is built from source in CI to avoid hardcoded paths.
+# See: .github/workflows/build-mac.yml and .github/workflows/release.yml
