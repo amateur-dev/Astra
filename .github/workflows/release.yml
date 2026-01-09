@@ -28,7 +28,8 @@ jobs:
           
           # Build with CMake - Metal enabled for macOS
           cmake -B build -DWHISPER_METAL=ON -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_EXAMPLES=ON
-          cmake --build build --config Release -j$(sysctl -n hw.ncpu)
+          NCPU=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+          cmake --build build --config Release -j$NCPU
           
           # Copy the whisper-cli binary to the project
           mkdir -p $GITHUB_WORKSPACE/build/whisper
