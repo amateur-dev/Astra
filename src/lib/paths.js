@@ -34,5 +34,9 @@ module.exports = {
   MODELS_DIR,
   FFMPEG_PATH: getBinaryPath('ffmpeg', 'ffmpeg'),
   WHISPER_PATH: getBinaryPath('whisper', 'whisper-cli'),
+  WHISPER_SERVER_PATH: getBinaryPath('whisper', 'whisper-server'),
+  PIPER_DIR: path.join(BIN_DIR, 'piper'),
+  PIPER_PATH: path.join(BIN_DIR, 'piper', 'piper'),
+  VOICE_MODEL_PATH: path.join(MODELS_DIR, 'en_US-lessac-high.onnx'),
   getModelPath: (modelName) => path.join(MODELS_DIR, modelName)
 };
