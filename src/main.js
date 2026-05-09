@@ -1307,6 +1307,8 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           // Reset copilot mode for next run
           isCopilotMode = false
           copilotContext = null
+          const hadScreenContext = !!screenContext;
+          screenContext = null;
 
           // Generate final embedding for storage
           generateEmbedding(finalText).then(embedding => {
@@ -1315,7 +1317,8 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
 
           // Append caveat if enabled
           if (store.get('enable_ai_caveat') !== false && finalText) {
-            finalText = finalText.trim() + ' [Voice Note Transcribed Using AI]';
+            const contextMsg = hadScreenContext ? ' + Screen Context' : '';
+            finalText = finalText.trim() + ` [Voice Note Transcribed Using AI${contextMsg}]`;
           }
 
           // Send progress update for pasting
