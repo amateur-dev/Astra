@@ -1266,7 +1266,7 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           let polishTried = null
           let polishErrors = null
           
-          if (isCopilotMode && finalText) {
+          if ((isCopilotMode || (ollamaEnabled && screenContext)) && finalText) {
             if (processingWindow && processingWindow.webContents) {
               processingWindow.webContents.send('processing-progress', {
                 progress: 85,
@@ -1289,9 +1289,9 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
               polishUsed = polished.used
               polishTried = polished.tried
             } else {
-              polishError = polished ? polished.error : 'Copilot polish failed'
+              polishError = polished ? polished.error : 'AI polish failed'
               polishErrors = polished ? polished.errors : null
-              console.error('Copilot polishing failed:', polishError)
+              console.error('AI polishing failed:', polishError)
             }
           }
           
