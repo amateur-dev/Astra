@@ -9,6 +9,8 @@ function cleanTranscript (text) {
     let cleaned = text.replace(/\[\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?\s*-->\s*\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?\]/g, '')
     // Also remove standalone timestamp patterns without brackets
     cleaned = cleaned.replace(/\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?\s*-->\s*\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?/g, '')
+    // Remove standalone timestamp lines (e.g. 00:00:01)
+    cleaned = cleaned.replace(/^\s*\d{2}:\d{2}(?::\d{2})?\s*$/gm, '')
     
     // Split into lines and clean each line
     const rawLines = cleaned.split(/\r?\n/)
