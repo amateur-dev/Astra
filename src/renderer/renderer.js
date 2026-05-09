@@ -775,26 +775,31 @@ window.electronAPI.onRecordToggle(async (state) => {
       const ollamaUrl = r && r.ollama_url ? r.ollama_url : 'http://localhost:11434'
       const ollamaModel = r && r.ollama_model ? r.ollama_model : 'llama3.2'
   const ollamaEnabled = r && r.ollama_enabled === true
+  const screenContextEnabled = r && r.screen_context_enabled === true
+  const enableAiCaveat = (r && r.enable_ai_caveat !== undefined) ? r.enable_ai_caveat : true
   const autoPaste = (r && r.auto_paste !== undefined) ? r.auto_paste : true // Default to true if undefined
   const ffmpegPath = r && r.ffmpeg_path ? r.ffmpeg_path : ''
   const hotkey = r && r.hotkey ? r.hotkey : (process.env.HOTKEY || 'CommandOrControl+Shift+V')
   const suggestedCmd = r && r.suggested_transcribe_cmd ? r.suggested_transcribe_cmd : ''
-      
+
       // try to split into binary and model if possible
       const whisperBin = document.getElementById('whisperBin')
       const modelPath = document.getElementById('modelPath')
       const autoCheckbox = document.getElementById('autoTranscribe')
       const ollamaEnabledCheckbox = document.getElementById('ollamaEnabled')
+      const screenContextEnabledCheckbox = document.getElementById('screenContextEnabled')
+      const enableAiCaveatCheckbox = document.getElementById('enableAiCaveat')
       const ollamaUrlInput = document.getElementById('ollamaUrl')
   const ollamaModelInput = document.getElementById('ollamaModel')
   const autoPasteCheckbox = document.getElementById('autoPaste')
-      
+
   if (autoCheckbox) autoCheckbox.checked = !!auto
   if (ollamaEnabledCheckbox) ollamaEnabledCheckbox.checked = !!ollamaEnabled
+  if (screenContextEnabledCheckbox) screenContextEnabledCheckbox.checked = !!screenContextEnabled
+  if (enableAiCaveatCheckbox) enableAiCaveatCheckbox.checked = !!enableAiCaveat
   if (ollamaUrlInput) ollamaUrlInput.value = ollamaUrl
   if (ollamaModelInput) ollamaModelInput.value = ollamaModel
-  if (autoPasteCheckbox) autoPasteCheckbox.checked = !!autoPaste
-      
+  if (autoPasteCheckbox) autoPasteCheckbox.checked = !!autoPaste      
       if (tpl) {
         // crude parsing: first token is binary, -m <path> for model
         const binMatch = tpl.match(/^\s*(?:"|')?(.*?)(?:"|')?(?:\s|$)/)
@@ -849,10 +854,14 @@ window.electronAPI.onRecordToggle(async (state) => {
       const polishWhileValue = polishWhile ? !!polishWhile.checked : false
     const ollamaEnabledCheckbox = document.getElementById('ollamaEnabled')
     const ollamaEnabled = ollamaEnabledCheckbox ? !!ollamaEnabledCheckbox.checked : false
+    const screenContextEnabledCheckbox = document.getElementById('screenContextEnabled')
+    const screenContextEnabled = screenContextEnabledCheckbox ? !!screenContextEnabledCheckbox.checked : false
+    const enableAiCaveatCheckbox = document.getElementById('enableAiCaveat')
+    const enableAiCaveat = enableAiCaveatCheckbox ? !!enableAiCaveatCheckbox.checked : true
     const ollamaUrl = document.getElementById('ollamaUrl').value.trim() || 'http://localhost:11434'
-  const ollamaModel = document.getElementById('ollamaModel').value.trim() || 'llama3.2'
-  const autoPaste = document.getElementById('autoPaste') ? !!document.getElementById('autoPaste').checked : false
-    
+    const ollamaModel = document.getElementById('ollamaModel').value.trim() || 'llama3.2'
+    const autoPaste = document.getElementById('autoPaste') ? !!document.getElementById('autoPaste').checked : false
+
     if (!whisperBin || !modelPath) {
       document.getElementById('settingsResult').textContent = 'Please provide both binary and model path.'
       return
@@ -860,8 +869,17 @@ window.electronAPI.onRecordToggle(async (state) => {
     // Build the transcribe command template
     const tpl = `${whisperBin} -m ${modelPath} -f {wav}`
     // include hotkey in saved settings if present
-    const payload = { transcribe_cmd: tpl, auto_transcribe: auto, ffmpeg_path: ffmpegPath, ollama_enabled: ollamaEnabled, ollama_url: ollamaUrl, ollama_model: ollamaModel, auto_paste: autoPaste }
-    if (hotkeyValue) payload.hotkey = hotkeyValue
+    const payload = { 
+      transcribe_cmd: tpl, 
+      auto_transcribe: auto, 
+      ffmpeg_path: ffmpegPath, 
+      ollama_enabled: ollamaEnabled, 
+      screen_context_enabled: screenContextEnabled,
+      enable_ai_caveat: enableAiCaveat,
+      ollama_url: ollamaUrl, 
+      ollama_model: ollamaModel, 
+      auto_paste: autoPaste 
+    }    if (hotkeyValue) payload.hotkey = hotkeyValue
     const payloadWithPolish = Object.assign({}, payload, { polish_while_transcribe: polishWhileValue })
     const r = await window.electronAPI.saveSettings(payloadWithPolish)
     if (r && r.ok) {

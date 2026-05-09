@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, clipboard } = require('electron')
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, clipboard, systemPreferences, desktopCapturer } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -7,13 +7,71 @@ const Store = require('electron-store')
 const store = new Store({
   defaults: {
     auto_paste: true,
-    auto_transcribe: true
+    auto_transcribe: true,
+    screen_context_enabled: false,
+    enable_ai_caveat: true
   }
 })
 const logger = require('./lib/logger')
 const dependencyManager = require('./lib/dependency-manager')
-const { BIN_DIR, MODELS_DIR, WHISPER_PATH } = require('./lib/paths')
+const { BIN_DIR, MODELS_DIR, WHISPER_PATH, PIPER_PATH, VOICE_MODEL_PATH } = require('./lib/paths')
 const { shell } = require('electron')
+const ttsUtils = require('./lib/tts-utils');
+
+// Resolve a usable `fetch` in the main process.
+let fetch;
+(async () => {
+  if (global.fetch) {
+    fetch = global.fetch;
+  } else if (typeof globalThis.fetch === 'function') {
+    fetch = globalThis.fetch.bind(globalThis);
+  } else {
+    try {
+      const nf = require('node-fetch');
+      fetch = nf && (nf.default || nf);
+    } catch (errRequire) {
+      try {
+        const nodeFetch = await import('node-fetch');
+        fetch = nodeFetch && (nodeFetch.default || nodeFetch);
+      } catch (errImport) {
+        try {
+          const undici = require('undici');
+          fetch = undici && undici.fetch;
+        } catch (errUndici) {
+          console.error('Failed to load any fetch implementation:', errRequire, errImport, errUndici);
+        }
+      }
+    }
+  }
+})();
+
+const whisperServerManager = require('./lib/whisper-server-manager');
+const memoryManager = require('./lib/memory-manager');
+const TTS_HOTKEY = 'CommandOrControl+Shift+D';
+const COPILOT_HOTKEY = 'CommandOrControl+Option+Shift+V';
+
+// Helper: Clean up temporary files
+async function cleanupTempFiles(forceAll = false) {
+  try {
+    const tmpDir = os.tmpdir();
+    const files = await fs.promises.readdir(tmpDir);
+    const now = Date.now();
+    const maxAge = forceAll ? 0 : 24 * 60 * 60 * 1000; // 24 hours
+
+    for (const file of files) {
+      if (file.startsWith('voicehotkey-') || file.startsWith('streaming-')) {
+        const filePath = path.join(tmpDir, file);
+        const stats = await fs.promises.stat(filePath);
+        if (now - stats.mtimeMs > maxAge) {
+          await fs.promises.unlink(filePath).catch(() => {});
+        }
+      }
+    }
+    console.log(`Cleanup complete${forceAll ? ' (forced)' : ''}`);
+  } catch (err) {
+    console.error('Cleanup failed:', err);
+  }
+}
 
 // Add BIN_DIR to PATH so child_process can find ffmpeg/whisper
 process.env.PATH = `${BIN_DIR}${path.delimiter}${process.env.PATH}`
@@ -39,46 +97,6 @@ console.warn = (...args) => {
 // Suggested recommended default transcription command (does NOT overwrite user settings)
 const SUGGESTED_TRANSCRIBE_CMD = `"${WHISPER_PATH}" -m models/ggml-small.en.bin -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -nt`
 
-// Resolve a usable `fetch` in the main process.
-// Prefer a built-in/global fetch (available in newer Node/Electron), then try
-// CommonJS `require('node-fetch')`, then dynamic import of ESM `node-fetch`,
-// and finally `undici.fetch` as a last resort. This makes the packaged DMG
-// more resilient when the environment differs from the dev machine.
-let fetch = null
-try {
-  if (typeof globalThis.fetch === 'function') {
-    fetch = globalThis.fetch.bind(globalThis)
-  }
-} catch (e) {
-  // ignore
-}
-if (!fetch) {
-  try {
-    // Try commonjs require (works if node-fetch installed as CJS or has default export)
-    // This will throw if node-fetch is ESM-only in this runtime, which we catch below.
-    // eslint-disable-next-line global-require
-    const nf = require('node-fetch')
-    fetch = nf && (nf.default || nf)
-  } catch (errRequire) {
-    // try dynamic import of ESM package as a fallback
-    ;(async () => {
-      try {
-        const nodeFetch = await import('node-fetch')
-        fetch = nodeFetch && (nodeFetch.default || nodeFetch)
-      } catch (errImport) {
-        try {
-          // Last resort: try undici if available
-          // eslint-disable-next-line global-require
-          const undici = require('undici')
-          fetch = undici && undici.fetch
-        } catch (errUndici) {
-          console.error('Failed to load any fetch implementation (global, node-fetch, undici):', errRequire, errImport, errUndici)
-        }
-      }
-    })()
-  }
-}
-
 let mainWindow = null
 let recordingWindow = null
 let processingWindow = null
@@ -86,6 +104,9 @@ let transcriptWindow = null
 let logWindow = null
 let tray = null
 let isRecording = false
+let isCopilotMode = false
+let copilotContext = null
+let screenContext = null
 let isCancelled = false
 // Live mock state per renderer sender (used for incremental patch simulation)
 const liveMockState = {}
@@ -393,10 +414,156 @@ function createLogWindow () {
 }
 
 
+async function captureScreen() {
+  try {
+    const sources = await desktopCapturer.getSources({ 
+      types: ['screen'], 
+      thumbnailSize: { width: 800, height: 450 } // Resolution tuned for fast LLM processing
+    });
+    if (sources && sources.length > 0) {
+      // Use the first screen as primary. Convert to JPEG with 50% quality for maximum speed.
+      const dataUrl = sources[0].thumbnail.toDataURL('image/jpeg', 50);
+      console.log('Screen captured successfully (Heavily Optimized JPEG)');
+      return dataUrl;
+    }
+  } catch (err) {
+    console.error('Failed to capture screen:', err);
+  }
+  return null;
+}
+
+async function captureSelectedText() {
+  const script = `
+    tell application "System Events"
+      set frontApp to first application process whose frontmost is true
+      set frontAppName to name of frontApp
+      tell process frontAppName
+        keystroke "c" using {command down}
+      end tell
+      return frontAppName
+    end tell
+  `;
+  
+  clipboard.clear();
+  
+  return new Promise((resolve) => {
+    exec(`osascript -e '${script}'`, (err, stdout, stderr) => {
+      if (err) {
+        console.error('Failed to copy text', err)
+        return resolve(null);
+      }
+      
+      let attempts = 0;
+      const checkClipboard = setInterval(() => {
+        const text = clipboard.readText();
+        attempts++;
+        
+        if (text) {
+          clearInterval(checkClipboard);
+          resolve(text);
+        } else if (attempts > 10) {
+           clearInterval(checkClipboard);
+           resolve(null);
+        }
+      }, 100);
+    });
+  });
+}
+
+function toggleRecording(copilot = false) {
+  console.log('toggleRecording called, copilot:', copilot, 'current isRecording:', isRecording)
+  
+  if (!isRecording) {
+    // Capture screen context if enabled, or if in Copilot Mode (high-power feature)
+    const screenEnabled = store.get('screen_context_enabled') === true;
+    if (screenEnabled || copilot) {
+      captureScreen().then(dataUrl => {
+        screenContext = dataUrl;
+      });
+    } else {
+      screenContext = null;
+    }
+
+    if (copilot) {
+      isCopilotMode = true;
+      captureSelectedText().then(text => {
+        copilotContext = text;
+        console.log('Copilot context captured:', text ? text.substring(0, 50) + '...' : 'NONE');
+      });
+    } else {
+      isCopilotMode = false;
+      copilotContext = null;
+    }
+  }
+
+  isRecording = !isRecording
+  console.log('Toggled isRecording to:', isRecording)
+  
+  // Show/hide recording window and update tray icon
+  if (isRecording) {
+    // Register Escape key to cancel recording
+    globalShortcut.register('Escape', () => {
+      handleCancelRecording()
+    })
+
+    // Hide main window when recording starts
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+      mainWindow.hide()
+    }
+    showRecordingWindow()
+    updateTrayIcon('recording')
+    // Notify recording window that recording has started
+    if (recordingWindow && recordingWindow.webContents) {
+      recordingWindow.webContents.send('recording-start', { isCopilot: isCopilotMode })
+    }
+  } else {
+    // Unregister Escape key
+    globalShortcut.unregister('Escape')
+
+    // Keep recording window visible, just change its state to processing
+    updateTrayIcon('processing') // Will change to idle after transcription completes
+    // Notify recording window to switch to processing mode
+    if (recordingWindow && recordingWindow.webContents) {
+      recordingWindow.webContents.send('recording-stop')
+      recordingWindow.webContents.send('show-processing')
+    }
+  }
+  
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+    mainWindow.webContents.send('record-toggle', isRecording)
+  }
+}
+
 function registerHotkey (hotkey) {
   try {
     // Remove any existing shortcut
     globalShortcut.unregisterAll()
+
+    // --- TTS Functionality Integration ---
+    if (hotkey !== TTS_HOTKEY) {
+      globalShortcut.register(TTS_HOTKEY, () => {
+        console.log('TTS Hotkey pressed')
+        captureSelectedText().then(text => {
+          if (text) {
+            console.log(`TTS: Speaking ${text.length} chars`);
+            ttsUtils.speak(text).catch(e => console.error('TTS Speak Error:', e));
+          } else {
+            console.warn('TTS: No text selected');
+          }
+        });
+      });
+      console.log('TTS Hotkey registered:', TTS_HOTKEY)
+    }
+
+    // --- Copilot Hotkey Integration ---
+    if (hotkey !== COPILOT_HOTKEY && TTS_HOTKEY !== COPILOT_HOTKEY) {
+      globalShortcut.register(COPILOT_HOTKEY, () => {
+        console.log('Copilot Hotkey pressed')
+        toggleRecording(true);
+      });
+      console.log('Copilot Hotkey registered:', COPILOT_HOTKEY)
+    }
+
     if (!hotkey) {
       // empty hotkey: unregister and return success
       try { store.delete('hotkey') } catch (e) {}
@@ -404,56 +571,7 @@ function registerHotkey (hotkey) {
       return true
     }
     const ok = globalShortcut.register(hotkey, () => {
-      console.log('Hotkey pressed:', hotkey, 'current isRecording:', isRecording)
-      isRecording = !isRecording
-      console.log('Toggled isRecording to:', isRecording)
-      
-      // Show/hide recording window and update tray icon
-      if (isRecording) {
-        // Register Escape key to cancel recording
-        globalShortcut.register('Escape', () => {
-          handleCancelRecording()
-        })
-
-        // Hide main window when recording starts
-        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
-          mainWindow.hide()
-        }
-        showRecordingWindow()
-        updateTrayIcon('recording')
-        // Notify recording window that recording has started
-        if (recordingWindow && recordingWindow.webContents) {
-          recordingWindow.webContents.send('recording-start')
-        }
-      } else {
-        // Unregister Escape key
-        globalShortcut.unregister('Escape')
-
-        // Keep recording window visible, just change its state to processing
-        updateTrayIcon('processing') // Will change to idle after transcription completes
-        // Notify recording window to switch to processing mode
-        if (recordingWindow && recordingWindow.webContents) {
-          recordingWindow.webContents.send('recording-stop')
-          recordingWindow.webContents.send('show-processing')
-        }
-      }
-      
-      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-        mainWindow.webContents.send('record-toggle', isRecording)
-        console.log('Sent record-toggle event to renderer')
-        
-        // Ensure recording window is shown/hidden correctly
-        if (isRecording) {
-          showRecordingWindow()
-          // Note: 'recording-start' is already sent above, do not send it again here
-        } else {
-          // Note: 'recording-stop' and 'show-processing' are already sent above
-          // We don't want to hide it here because it needs to show processing state
-          // hideRecordingWindow() // Removed to allow processing state to show
-        }
-      } else {
-        console.warn('mainWindow not available to send record-toggle')
-      }
+      toggleRecording(false);
     })
     console.log(`Hotkey registration for '${hotkey}': ${ok ? 'SUCCESS' : 'FAILED'}`)
     return ok
@@ -464,6 +582,16 @@ function registerHotkey (hotkey) {
 }
 
 app.whenReady().then(() => {
+  // Check Accessibility Permissions (MacOS)
+  if (process.platform === 'darwin') {
+      const isTrusted = systemPreferences.isTrustedAccessibilityClient(true);
+      if (!isTrusted) {
+          console.warn('WARNING: Accessibility permissions missing. Prompting user...');
+      } else {
+          console.log('Accessibility permissions: GRANTED');
+      }
+  }
+
   // Hide from dock to prevent space switching when app is active
   if (process.platform === 'darwin') {
     app.dock.hide()
@@ -471,9 +599,21 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
 
+  // Run cleanup on startup to remove old voice notes
+  // First, do a deep cleanup of everything from previous sessions
+  cleanupTempFiles(true);
+
+  // Run OpenClaw-style memory compaction
+  setTimeout(() => {
+    memoryManager.compactMemory(callOllama).catch(err => {
+      console.error('Startup memory compaction failed:', err);
+    });
+  }, 5000); // Wait 5s after startup to not block UI
+
   // register a simple global shortcut: Cmd+Shift+V to toggle recording
   // Get stored hotkey or default
-  const savedHotkey = store.get('hotkey') || process.env.HOTKEY || 'CommandOrControl+Shift+V'
+  let savedHotkey = store.get('hotkey') || process.env.HOTKEY || 'CommandOrControl+Shift+V'
+  
   console.log('Attempting to register hotkey:', savedHotkey)
   const ret = registerHotkey(savedHotkey)
   if (!ret) {
@@ -482,13 +622,42 @@ app.whenReady().then(() => {
     console.log('Global shortcut registered successfully:', savedHotkey)
   }
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+// Start Whisper Server for real-time streaming
+  const modelName = store.get('model') || 'ggml-small.en.bin'
+  const modelPath = path.join(MODELS_DIR, modelName)
+  whisperServerManager.start(modelPath).catch(err => {
+    console.error('Failed to start Whisper Server:', err)
   })
+
+  // Background check/install for Piper + Voice Model
+  setTimeout(async () => {
+    logger.info('Starting background dependency check (Piper + Voice Model)...')
+    try {
+      if (!fs.existsSync(PIPER_PATH)) {
+        logger.info('Piper missing. Installing now...')
+        await dependencyManager.installPiper()
+      }
+      if (!fs.existsSync(VOICE_MODEL_PATH)) {
+        logger.info('Voice Model missing. Installing now...')
+        await dependencyManager.installVoiceModel()
+      }
+      logger.info('Background dependency check complete.')
+    } catch (err) {
+      logger.error('Background dependency check failed:', err)
+    }
+  }, 1000)
+})
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
 })
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+  ttsUtils.stop()
+  whisperServerManager.stop()
 })
 
 ipcMain.handle('app-version', () => app.getVersion())
@@ -508,21 +677,52 @@ ipcMain.handle('clear-logs', () => {
 
 ipcMain.handle('check-ollama', async () => {
   try {
+    let localFetch = fetch;
+    if (!localFetch) {
+      const nodeFetch = await import('node-fetch');
+      localFetch = nodeFetch.default;
+    }
+
     const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434'
-    if (!fetch) {
+    const configuredModel = store.get('ollama_model') || 'llama3.2'
+
+    if (!localFetch) {
       return { installed: false, running: false, error: 'No fetch implementation available' }
     }
-    const response = await fetch(`${ollamaUrl}/api/tags`, { 
+
+    const response = await localFetch(`${ollamaUrl}/api/tags`, {
       method: 'GET',
-      signal: AbortSignal.timeout(2000) // 2 second timeout
+      // signal: AbortSignal.timeout(2000) // 2 second timeout - not supported by node-fetch 3.x directly without AbortController
     })
-    return { installed: true, running: response.ok }
+
+    if (response.ok) {
+      const data = await response.json()
+      const models = data.models || []
+
+      const hasConfiguredModel = models.some(m => m.name.includes(configuredModel))
+      const hasVisionModel = models.some(m => 
+        m.name.includes('vision') || 
+        m.name.includes('llava') || 
+        m.name.includes('llama3.2') ||
+        m.name.includes('qwen') || 
+        m.name.includes('gemma') ||
+        m.name.includes('bakllava')
+      )
+
+      return { 
+        installed: true,
+        running: true, 
+        models: models.map(m => m.name),
+        hasConfiguredModel,
+        hasVisionModel,
+        configuredModel
+      }
+    }
+    return { installed: true, running: false }
   } catch (err) {
     return { installed: false, running: false, error: String(err) }
   }
-})
-
-// Dependency Management IPC
+})// Dependency Management IPC
 ipcMain.handle('check-dependencies', async () => {
   return await dependencyManager.checkDependencies()
 })
@@ -606,6 +806,8 @@ ipcMain.handle('get-settings', async () => {
     ollama_url: store.get('ollama_url'),
     ollama_model: store.get('ollama_model'),
     ollama_enabled: store.get('ollama_enabled'),
+    screen_context_enabled: store.get('screen_context_enabled'),
+    enable_ai_caveat: store.get('enable_ai_caveat'),
     auto_paste: store.get('auto_paste') !== undefined ? store.get('auto_paste') : true, // Default to true if undefined
     ffmpeg_path: store.get('ffmpeg_path'),
     hotkey: store.get('hotkey'),
@@ -619,6 +821,8 @@ ipcMain.handle('save-settings', async (event, settings) => {
   if (settings.ollama_url !== undefined) store.set('ollama_url', settings.ollama_url)
   if (settings.ollama_model !== undefined) store.set('ollama_model', settings.ollama_model)
   if (settings.ollama_enabled !== undefined) store.set('ollama_enabled', settings.ollama_enabled)
+  if (settings.screen_context_enabled !== undefined) store.set('screen_context_enabled', settings.screen_context_enabled)
+  if (settings.enable_ai_caveat !== undefined) store.set('enable_ai_caveat', settings.enable_ai_caveat)
   if (settings.auto_paste !== undefined) store.set('auto_paste', settings.auto_paste)
   if (settings.ffmpeg_path !== undefined) store.set('ffmpeg_path', settings.ffmpeg_path)
   if (settings.hotkey !== undefined) {
@@ -663,6 +867,54 @@ ipcMain.handle('cancel-recording', async () => {
 
 ipcMain.handle('is-recording', async () => {
   return isRecording
+})
+
+ipcMain.handle('get-streaming-transcript', async (event, uint8Array) => {
+  try {
+    if (!whisperServerManager.isRunning()) {
+      return { ok: false, error: 'Whisper server is not running' }
+    }
+
+    const buffer = Buffer.from(uint8Array)
+    const webmPath = path.join(os.tmpdir(), `streaming-${Date.now()}.webm`)
+    const wavPath = path.join(os.tmpdir(), `streaming-${Date.now()}.wav`)
+    
+    await fs.promises.writeFile(webmPath, buffer)
+    
+    const ffmpegCmd = await findFfmpeg()
+    if (!ffmpegCmd) return { ok: false, error: 'ffmpeg not found' }
+
+    // Convert to 16kHz mono WAV for whisper-server
+    await new Promise((resolve, reject) => {
+      exec(`"${ffmpegCmd}" -y -i "${webmPath}" -ar 16000 -ac 1 -sample_fmt s16 "${wavPath}"`, (err) => {
+        if (err) reject(err)
+        else resolve()
+      })
+    })
+
+    // Use curl to hit the local whisper-server (easiest way to handle multipart/form-data without extra dependencies)
+    const result = await new Promise((resolve) => {
+      const port = 8080
+      exec(`curl -s http://localhost:${port}/inference -F "file=@${wavPath}"`, (err, stdout) => {
+        if (err) return resolve({ ok: false, error: String(err) })
+        try {
+          const json = JSON.parse(stdout)
+          resolve({ ok: true, text: json.text })
+        } catch (e) {
+          resolve({ ok: false, error: 'Failed to parse whisper-server response' })
+        }
+      })
+    })
+
+    // Clean up temp files
+    fs.promises.unlink(webmPath).catch(() => {})
+    fs.promises.unlink(wavPath).catch(() => {})
+
+    return result
+  } catch (err) {
+    console.error('get-streaming-transcript error', err)
+    return { ok: false, error: String(err) }
+  }
 })
 
 // Cancel ongoing transcription and hide processing window
@@ -912,12 +1164,57 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           let polishTried = null
           let polishErrors = null
           
+          if (isCopilotMode && finalText) {
+            if (processingWindow && processingWindow.webContents) {
+              processingWindow.webContents.send('processing-progress', {
+                progress: 85,
+                status: 'finalizing',
+                subStatus: 'Processing with AI...'
+              })
+            }
+            
+            // Fetch semantic context first for smarter polishing
+            const currentEmbedding = await generateEmbedding(finalText);
+            const semanticContext = memoryManager.getSemanticContext(currentEmbedding);
+
+            const polished = await polishWithOllama(finalText, semanticContext)
+            if (polished && polished.ok) {
+              // Learn from the correction if text was selected
+              if (copilotContext) {
+                memoryManager.addCorrection(copilotContext, polished.text);
+              }
+              finalText = polished.text
+              polishUsed = polished.used
+              polishTried = polished.tried
+            } else {
+              polishError = polished ? polished.error : 'Copilot polish failed'
+              polishErrors = polished ? polished.errors : null
+              console.error('Copilot polishing failed:', polishError)
+            }
+          }
+          
           // Only attempt polishing if there is non-empty transcript text
             // Do not auto-polish with Ollama during save-recording auto-transcribe.
             // Keep polish optional and on-demand: use explicit 'polish-transcript' IPC.
           // Clean the final text (strip timestamps/caveat) before any further actions
-          finalText = cleanTranscript(finalText)
-          console.log('Final cleaned text:', finalText)
+          if (!isCopilotMode) {
+            finalText = cleanTranscript(finalText)
+          }
+          console.log('Final text:', finalText)
+
+          // Reset copilot mode for next run
+          isCopilotMode = false
+          copilotContext = null
+
+          // Generate final embedding for storage
+          generateEmbedding(finalText).then(embedding => {
+            memoryManager.logTranscript(tx.text, finalText, embedding);
+          });
+
+          // Append caveat if enabled
+          if (store.get('enable_ai_caveat') !== false && finalText) {
+            finalText = finalText.trim() + ' [Voice Note Transcribed Using AI]';
+          }
 
           // Send progress update for pasting
           if (processingWindow && processingWindow.webContents) {
@@ -1323,33 +1620,110 @@ async function transcribeWav (wavPath, options = {}) {
   }
 }
 
-// helper: polish transcript text using Ollama API
-async function polishWithOllama (text) {
+// Generic helper to call Ollama generate API
+async function callOllama(prompt) {
   try {
-    if (!fetch) {
-      // If fetch couldn't be resolved at startup, surface a clearer message and
-      // avoid throwing the raw import failure. The caller will receive a
-      // structured error so the UI can show a helpful message.
-      console.error('polishWithOllama: no fetch implementation available in main process')
-      throw new Error('fetch not available in the main process; Ollama polishing is disabled. Make sure node-fetch or undici is packaged, or run a newer Electron with global fetch support.')
+    let localFetch = fetch;
+    if (!localFetch) {
+      const nodeFetch = await import('node-fetch');
+      localFetch = nodeFetch.default;
     }
 
     const configuredUrl = store.get('ollama_url') || 'http://localhost:11434'
     const ollamaModel = store.get('ollama_model') || 'llama3.2'
-    // Instruct Ollama to both polish and remove unwanted artifacts like
-    // timestamps and the common 'I made the following changes' caveat, and
-    // to return the result as a single paragraph.
-  const prompt = `Please perform the following on the transcript below:
-  1) Remove any timestamps or timecodes (examples: "00:00:00", "00:00:00.000", "00:00:00 --> 00:00:16.500", or any bracketed timecodes).
-  2) Remove any editorial caveat or checklist that begins with phrases like "I made the following changes" and any bullet/list that follows it.
-  3) Fix grammar, punctuation, and formatting while preserving the original meaning.
-  4) Return the cleaned transcript as a single paragraph with normalized whitespace.
+    
+    const url = `${configuredUrl.trim().replace(/\/+$/, '')}/api/generate`
+    const response = await localFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: ollamaModel, prompt, stream: false }),
+    })
+    
+    if (response.ok) {
+      const data = await response.json()
+      return { ok: true, text: data.response }
+    }
+    return { ok: false, error: `HTTP ${response.status}` }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+}
 
-  IMPORTANT: Do NOT include any heading, label, or introductory phrase such as "Here is the cleaned transcript:" — return only the cleaned paragraph.
+// helper: polish transcript text using Ollama API
+async function polishWithOllama (text, semanticContext = "") {
+  try {
+    let localFetch = fetch;
+    if (!localFetch) {
+      const nodeFetch = await import('node-fetch');
+      localFetch = nodeFetch.default;
+    }
+    if (!localFetch) {
+      console.error('polishWithOllama: no fetch implementation available in main process')
+      throw new Error('fetch not available in the main process; Ollama polishing is disabled.')
+    }
+
+    const configuredUrl = store.get('ollama_url') || 'http://localhost:11434'
+    const ollamaModel = store.get('ollama_model') || 'llama3.2'
+    const memoryContext = memoryManager.getMemoryContext();
+    
+    let prompt = '';
+    if (isCopilotMode) {
+      if (copilotContext) {
+        prompt = `You are an AI writing assistant.
+Your task is to edit, rewrite, or fulfill the following USER INSTRUCTION based on the provided TEXT.
+${screenContext ? 'A screenshot of the user\'s screen is provided for visual context. Use it to correctly identify jargon, app names, or UI elements mentioned in the instruction.' : ''}
+
+${memoryContext}
+${semanticContext}
+
+TEXT:
+"""
+${copilotContext}
+"""
+
+USER INSTRUCTION:
+"""
+${text}
+"""
+
+IMPORTANT:
+1) Return ONLY the modified text.
+2) Do NOT include any introductory phrases like "Here is the rewritten text:".
+3) Do NOT include any caveats or explanations.
+4) Maintain the same format (e.g. if the input is code, return code; if it is an email, return an email).`;
+      } else {
+        prompt = `You are an AI writing assistant.
+The user has provided a voice instruction, but NO text was selected. 
+${screenContext ? 'A screenshot of the user\'s screen is provided for visual context. Use it to correctly identify jargon, app names, or UI elements mentioned in the instruction.' : ''}
+
+${memoryContext}
+${semanticContext}
+
+USER INSTRUCTION:
+"""
+${text}
+"""
+
+TASK:
+1) Fulfill the user's instruction. If they asked to "write a React component", write it. If they asked a question, answer it concisely.
+2) Return ONLY the result.
+3) Do NOT include any introductory phrases or caveats.`;
+      }
+    } else {
+      prompt = `Please perform the following on the transcript below:
+  1) Remove any timestamps or timecodes.
+  2) Remove any editorial caveats.
+  3) Fix grammar, punctuation, and formatting.
+  ${screenContext ? '4) Use the provided screenshot as visual context to correct any spelling errors of jargon, names, or apps visible on the screen.' : ''}
+  
+  ${memoryContext}
+  ${semanticContext}
+
+  Return ONLY the cleaned paragraph.
 
   Transcript:
-
-  ${text}`
+  ${text}`;
+    }
 
     // Build an ordered list of candidate base URLs to try.
     // If the configured URL uses localhost, add an explicit 127.0.0.1 fallback.
@@ -1370,19 +1744,77 @@ async function polishWithOllama (text) {
     for (const base of candidates) {
       try {
         const url = `${base.replace(/\/$/, '')}/api/generate`
+        
+        const body = { model: ollamaModel, prompt, stream: true };
+        if (screenContext) {
+          body.images = [screenContext.split(',')[1] || screenContext];
+        }
+
         const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: ollamaModel, prompt, stream: false }),
+          body: JSON.stringify(body),
           // small timeout not directly supported by node-fetch v3; rely on default
         })
+        
         if (!response.ok) {
           const txt = await response.text().catch(() => '')
           errors[base] = `HTTP ${response.status} ${response.statusText} ${txt}`
           continue
         }
-        const data = await response.json()
-        const polishedText = data.response || text
+
+        let polishedText = '';
+        let streamSeq = 0;
+        
+        // Ensure processing window is visible and showing transcript UI
+        if (processingWindow && processingWindow.webContents) {
+            processingWindow.webContents.send('processing-progress', {
+                progress: 90,
+                status: 'finalizing',
+                subStatus: 'AI is streaming response...'
+            });
+        }
+        
+        // Show transcript window early to stream into it
+        showTranscriptWindow('');
+
+        // Process the streaming response
+        if (response.body && typeof response.body.on === 'function') {
+           // Node.js stream API (from node-fetch)
+           await new Promise((resolve, reject) => {
+               response.body.on('data', (chunk) => {
+                   const lines = chunk.toString().split('\n');
+                   for (const line of lines) {
+                       if (!line.trim()) continue;
+                       try {
+                           const parsed = JSON.parse(line);
+                           if (parsed.response) {
+                               polishedText += parsed.response;
+                               streamSeq++;
+                               // Send partial text to both potential active windows
+                               if (transcriptWindow && transcriptWindow.webContents) {
+                                  transcriptWindow.webContents.send('transcript-data', polishedText);
+                               }
+                               if (mainWindow && mainWindow.webContents) {
+                                  mainWindow.webContents.send('live-patch', { seq: streamSeq, text: polishedText });
+                               }
+                           }
+                       } catch (e) {
+                           console.warn('Error parsing JSON from stream:', e);
+                       }
+                   }
+               });
+               response.body.on('end', () => resolve());
+               response.body.on('error', (err) => reject(err));
+           });
+        } else {
+            // Fallback for environments where body isn't an EventEmitter
+            const data = await response.json();
+            polishedText = data.response || text;
+        }
+
+        // Hide processing window once streaming is done
+        hideProcessingWindow();
         return { ok: true, text: polishedText, used: base, tried: candidates }
       } catch (err) {
         // record the error and try next candidate
@@ -1397,6 +1829,34 @@ async function polishWithOllama (text) {
     console.error('polishWithOllama error', err)
     return { ok: false, error: String(err) }
   }
+}
+
+// helper: generate embedding for text using Ollama
+async function generateEmbedding (text) {
+  try {
+    if (!text || !fetch) return null;
+
+    const configuredUrl = store.get('ollama_url') || 'http://localhost:11434'
+    const ollamaModel = store.get('ollama_model') || 'llama3.2' // Most modern models support embedding
+
+    const url = `${configuredUrl.trim().replace(/\/+$/, '')}/api/embeddings`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: ollamaModel, prompt: text }),
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      if (data.embedding) {
+        // Convert float array to Buffer for storage in SQLite BLOB
+        return Buffer.from(new Float32Array(data.embedding).buffer);
+      }
+    }
+  } catch (err) {
+    console.error('generateEmbedding error', err)
+  }
+  return null
 }
 
 // helper: clean transcript text by removing common timestamp lines, any

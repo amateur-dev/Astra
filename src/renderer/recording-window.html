@@ -148,6 +148,19 @@
       height: 40px;
       position: relative;
     }
+
+    .copilot-badge {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-left: 8px;
+      box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+    }
     
     .spinner-circle {
       width: 100%;
@@ -191,12 +204,15 @@
           <div class="recording-indicator"></div>
         </div>
         <div class="timer" id="timer">00:00</div>
+        <div class="copilot-badge" id="copilotBadge" style="display:none">AI Copilot</div>
       </div>
       
       <div class="waveform-container">
         <canvas id="waveform"></canvas>
       </div>
       
+      <div id="liveTranscript" style="font-size: 13px; color: #667eea; margin-top: 4px; text-align: center; width: 100%; min-height: 1.2em; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
+
       <div class="shortcuts">
         <div class="shortcut">
           <span class="key">⌘</span><span class="key">⇧</span><span class="key">V</span>
@@ -241,6 +257,7 @@
     const timerEl = document.getElementById('timer');
     const statusEl = document.getElementById('status');
     const audioLevelBar = document.getElementById('audioLevelBar');
+    const copilotBadge = document.getElementById('copilotBadge');
     
     let startTime = null;
     let timerInterval = null;
@@ -250,6 +267,10 @@
     let dataArray = null;
     let activeStream = null;
     let isStarting = false;
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let lastInferenceTime = 0;
+    let isProcessingStreaming = false;
     
     // Set canvas resolution
     function resizeCanvas() {
@@ -346,12 +367,20 @@
     }
     
     // Start recording UI
-    async function startRecording(stream) {
+    async function startRecording(data) {
       // Prevent concurrent start calls
       if (isStarting) return;
       isStarting = true;
 
       try {
+        const isCopilot = data && data.isCopilot;
+        if (copilotBadge) {
+          copilotBadge.style.display = isCopilot ? 'block' : 'none';
+        }
+
+        const liveTranscript = document.getElementById('liveTranscript');
+        if (liveTranscript) liveTranscript.textContent = '';
+
         // Ensure any previous stream is stopped before starting a new one
         if (activeStream) {
           activeStream.getTracks().forEach(track => {
@@ -368,25 +397,63 @@
         timerInterval = setInterval(updateTimer, 1000);
         
         // Get audio stream for waveform visualization
-        if (stream) {
-          activeStream = stream;
-        } else {
-          activeStream = await navigator.mediaDevices.getUserMedia({ 
-            audio: { 
-              sampleRate: 48000, 
-              channelCount: 1, 
-              noiseSuppression: false, 
-              echoCancellation: false, 
-              autoGainControl: false 
-            } 
-          });
-        }
+        activeStream = await navigator.mediaDevices.getUserMedia({ 
+          audio: { 
+            sampleRate: 48000, 
+            channelCount: 1, 
+            noiseSuppression: false, 
+            echoCancellation: false, 
+            autoGainControl: false 
+          } 
+        });
         initAudioVisualization(activeStream);
+
+        // Setup real-time streaming
+        audioChunks = [];
+        lastInferenceTime = Date.now();
+        mediaRecorder = new MediaRecorder(activeStream, { mimeType: 'audio/webm' });
+        mediaRecorder.ondataavailable = async (event) => {
+          if (event.data.size > 0) {
+            audioChunks.push(event.data);
+            const now = Date.now();
+            // Try inference every 2.5 seconds
+            if (now - lastInferenceTime > 2500 && !isProcessingStreaming) {
+              lastInferenceTime = now;
+              await sendForStreamingInference();
+            }
+          }
+        };
+        mediaRecorder.start(500); // Request data every 500ms
       } catch (e) {
         console.error('Failed to get audio stream for visualization:', e);
         // Continue without waveform if mic access fails
       } finally {
         isStarting = false;
+      }
+    }
+
+    async function sendForStreamingInference() {
+      if (!audioChunks.length || isProcessingStreaming) return;
+      
+      try {
+        isProcessingStreaming = true;
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        const arrayBuffer = await blob.arrayBuffer();
+        const uint8 = new Uint8Array(arrayBuffer);
+        
+        if (window.electronAPI && window.electronAPI.getStreamingTranscript) {
+          const result = await window.electronAPI.getStreamingTranscript(uint8);
+          if (result && result.ok && result.text) {
+            const liveTranscript = document.getElementById('liveTranscript');
+            if (liveTranscript) {
+              liveTranscript.textContent = result.text.trim();
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Streaming inference error:', e);
+      } finally {
+        isProcessingStreaming = false;
       }
     }
     
@@ -416,6 +483,10 @@
         audioContext = null;
       }
 
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+
       // Stop all media tracks to release microphone (removes orange dot)
       if (activeStream) {
         activeStream.getTracks().forEach(track => {
@@ -428,8 +499,8 @@
     // Listen for IPC messages from main process
     if (window.electronAPI) {
       if (window.electronAPI.onRecordingStart) {
-        window.electronAPI.onRecordingStart((stream) => {
-          startRecording(stream);
+        window.electronAPI.onRecordingStart((data) => {
+          startRecording(data);
         });
       }
       
