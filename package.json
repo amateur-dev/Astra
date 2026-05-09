@@ -9,7 +9,8 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test",
+    "doctor": "electron scripts/doctor.js",
+    "test": "node --test test/**/*.test.js",
     "build": "electron-builder --mac",
     "dist": "electron-builder --mac --x64",
     "dist:arm64": "electron-builder --mac --arm64",
