@@ -879,7 +879,8 @@ window.electronAPI.onRecordToggle(async (state) => {
       ollama_url: ollamaUrl, 
       ollama_model: ollamaModel, 
       auto_paste: autoPaste 
-    }    if (hotkeyValue) payload.hotkey = hotkeyValue
+    };
+    if (hotkeyValue) payload.hotkey = hotkeyValue;
     const payloadWithPolish = Object.assign({}, payload, { polish_while_transcribe: polishWhileValue })
     const r = await window.electronAPI.saveSettings(payloadWithPolish)
     if (r && r.ok) {
