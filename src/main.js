@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, clipboard, systemPreferences, desktopCapturer, Notification } = require('electron')
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, clipboard, systemPreferences, desktopCapturer, Notification, screen } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -102,6 +102,7 @@ let recordingWindow = null
 let processingWindow = null
 let transcriptWindow = null
 let logWindow = null
+let overlayWindows = []
 let tray = null
 let isRecording = false
 let isCopilotMode = false
@@ -413,6 +414,45 @@ function createLogWindow () {
   })
 }
 
+function createOverlayWindows () {
+  if (overlayWindows.length > 0) return
+
+  const displays = screen.getAllDisplays()
+  displays.forEach(display => {
+    const { width, height, x, y } = display.bounds
+
+    let win = new BrowserWindow({
+      x,
+      y,
+      width,
+      height,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      hasShadow: false,
+      focusable: false,
+      show: false,
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false
+      }
+    })
+
+    win.setIgnoreMouseEvents(true, { forward: true })
+    win.setAlwaysOnTop(true, 'screen-saver')
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+    win.loadFile(path.join(__dirname, 'renderer', 'overlay.html'))
+    
+    win.on('closed', () => {
+      overlayWindows = overlayWindows.filter(w => w !== win)
+    })
+    
+    overlayWindows.push(win)
+  })
+}
 
 async function captureScreen() {
   try {
@@ -516,9 +556,29 @@ function toggleRecording(copilot = false) {
     if (recordingWindow && recordingWindow.webContents) {
       recordingWindow.webContents.send('recording-start', { isCopilot: isCopilotMode })
     }
+
+    const screenEnabled = store.get('screen_context_enabled') === true;
+    const hasScreenContext = screenEnabled || copilot;
+    overlayWindows.forEach(win => {
+      if (!win.isDestroyed()) {
+        win.showInactive();
+        win.webContents.send('recording-started', { hasContext: hasScreenContext });
+      }
+    });
   } else {
     // Unregister Escape key
     globalShortcut.unregister('Escape')
+
+    overlayWindows.forEach(win => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('recording-stopped');
+        setTimeout(() => {
+          if (!win.isDestroyed() && !isRecording) {
+            win.hide();
+          }
+        }, 350);
+      }
+    });
 
     // Keep recording window visible, just change its state to processing
     updateTrayIcon('processing') // Will change to idle after transcription completes
@@ -611,6 +671,7 @@ app.whenReady().then(async () => {
   }
   createWindow()
   createTray()
+  createOverlayWindows()
 
   // Run cleanup on startup to remove old voice notes
   // First, do a deep cleanup of everything from previous sessions
@@ -869,6 +930,18 @@ async function handleCancelRecording() {
     isCancelled = true
     isRecording = false
     globalShortcut.unregister('Escape') // Unregister Escape shortcut
+    
+    overlayWindows.forEach(win => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('recording-stopped');
+        setTimeout(() => {
+          if (!win.isDestroyed() && !isRecording) {
+            win.hide();
+          }
+        }, 350);
+      }
+    });
+
     hideRecordingWindow()
     updateTrayIcon('idle')
     

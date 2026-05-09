@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Recording Overlay</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: transparent;
+            pointer-events: none; /* Let clicks pass through */
+        }
+        
+        #border-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            box-sizing: border-box;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            /* Inward shadow or border */
+            border: 4px solid transparent;
+            z-index: 9999;
+        }
+
+        #border-overlay.active {
+            opacity: 1;
+        }
+
+        /* Gradient border via background-clip on a pseudo element, or simple box-shadow */
+        #border-overlay::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            padding: 6px; /* thickness of the border */
+            -webkit-mask: 
+                linear-gradient(#fff 0 0) content-box, 
+                linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+            transition: background 0.3s ease-in-out;
+            background: rgba(255, 0, 0, 0.8); /* fallback */
+        }
+
+        #border-overlay.with-context::before {
+            /* Copilot / Screen context gradient: Red to Purple/Blue as requested by image */
+            background: linear-gradient(135deg, rgba(255, 204, 0, 0.9), rgba(255, 0, 0, 0.9), rgba(128, 0, 128, 0.9), rgba(0, 0, 255, 0.9));
+            /* Add some outer glow for the gradient effect */
+            box-shadow: inset 0 0 40px rgba(255, 0, 128, 0.3);
+        }
+
+        #border-overlay.no-context::before {
+            /* Standard audio-only: simple solid or different gradient */
+            background: linear-gradient(135deg, rgba(0, 255, 255, 0.8), rgba(0, 128, 255, 0.8));
+            box-shadow: inset 0 0 20px rgba(0, 255, 255, 0.3);
+        }
+
+        /* Another way to achieve the glow effect without pseudo element is using box-shadow directly */
+        #border-overlay.with-context {
+            box-shadow: 
+                inset 0 0 30px rgba(255, 0, 0, 0.4),
+                inset 0 0 10px rgba(255, 0, 255, 0.4);
+            border-image: linear-gradient(to right, #ffb347, #ff0000, #ff00ff, #0000ff) 1;
+            border-width: 4px;
+            border-style: solid;
+        }
+
+        #border-overlay.no-context {
+            box-shadow: 
+                inset 0 0 30px rgba(0, 200, 255, 0.4),
+                inset 0 0 10px rgba(0, 100, 255, 0.4);
+            border-image: linear-gradient(to right, #00ffff, #0088ff) 1;
+            border-width: 4px;
+            border-style: solid;
+        }
+        
+        /* Removing the before pseudo-element since border-image works better for the gradient line */
+        #border-overlay::before {
+            display: none;
+        }
+
+        /* Pulsing animation */
+        @keyframes pulse {
+            0% { opacity: 0.7; }
+            50% { opacity: 1; }
+            100% { opacity: 0.7; }
+        }
+        
+        #border-overlay.active {
+            animation: pulse 2s infinite ease-in-out;
+        }
+
+    </style>
+</head>
+<body>
+    <div id="border-overlay"></div>
+
+    <script>
+        const borderOverlay = document.getElementById('border-overlay');
+
+        window.electronAPI.onOverlayRecordingStarted((data) => {
+            console.log('Recording started', data);
+            borderOverlay.classList.remove('no-context', 'with-context');
+            if (data.hasContext) {
+                borderOverlay.classList.add('with-context');
+            } else {
+                borderOverlay.classList.add('no-context');
+            }
+            borderOverlay.classList.add('active');
+        });
+
+        window.electronAPI.onOverlayRecordingStopped(() => {
+            console.log('Recording stopped');
+            borderOverlay.classList.remove('active');
+        });
+    </script>
+</body>
+</html>
