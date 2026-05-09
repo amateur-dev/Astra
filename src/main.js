@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, clipboard, systemPreferences, desktopCapturer } = require('electron')
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, clipboard, systemPreferences, desktopCapturer, Notification } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -1277,18 +1277,22 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           hideRecordingWindow()
           updateTrayIcon('idle')
           
-          // Only show main window if paste failed or auto-paste is disabled
-          // If paste succeeded, stay in background to avoid desktop switching
-          const shouldShowMainWindow = !autoPaste || (pasteResult && !pasteResult.ok)
+          // Only show main window if auto-paste is explicitly disabled
+          // If auto-paste is enabled, stay in background to avoid desktop switching.
+          const shouldShowMainWindow = !autoPaste;
           
           if (shouldShowMainWindow && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
             mainWindow.show()
+            showTranscriptWindow(finalText)
           }
 
-          // If paste failed and we have text, show transcript window
-          if (autoPaste && finalText && pasteResult && !pasteResult.ok) {
-            console.log('Paste failed, showing transcript window')
-            showTranscriptWindow(finalText)
+          // If auto-paste was enabled but failed, notify the user silently instead of popping up windows
+          if (autoPaste && pasteResult && !pasteResult.ok) {
+            console.log('Paste failed, sending notification instead of breaking UX')
+            new Notification({
+              title: 'Voice Hotkey: Paste Failed',
+              body: 'Text copied to clipboard. (Check Accessibility permissions for auto-paste)'
+            }).show()
           }
 
           return { 
@@ -1804,9 +1808,6 @@ TASK:
             });
         }
         
-        // Show transcript window early to stream into it
-        showTranscriptWindow('');
-
         // Process the streaming response
         if (response.body && typeof response.body.on === 'function') {
            // Node.js stream API (from node-fetch)
@@ -1863,24 +1864,41 @@ TASK:
 // helper: generate embedding for text using Ollama
 async function generateEmbedding (text) {
   try {
-    if (!text || !fetch) return null;
+    let localFetch = fetch;
+    if (!localFetch) {
+      const nodeFetch = await import('node-fetch');
+      localFetch = nodeFetch.default;
+    }
+
+    if (!text || !localFetch) return null;
 
     const configuredUrl = store.get('ollama_url') || 'http://localhost:11434'
     const ollamaModel = store.get('ollama_model') || 'llama3.2' // Most modern models support embedding
 
-    const url = `${configuredUrl.trim().replace(/\/+$/, '')}/api/embeddings`
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: ollamaModel, prompt: text }),
-    })
+    const candidates = [configuredUrl];
+    if (configuredUrl.includes('localhost') && !configuredUrl.includes('127.0.0.1')) {
+       candidates.push(configuredUrl.replace('localhost', '127.0.0.1'));
+    }
 
-    if (response.ok) {
-      const data = await response.json()
-      if (data.embedding) {
-        // Convert float array to Buffer for storage in SQLite BLOB
-        return Buffer.from(new Float32Array(data.embedding).buffer);
-      }
+    for (const base of candidates) {
+        try {
+            const url = `${base.trim().replace(/\/+$/, '')}/api/embeddings`
+            const response = await localFetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ model: ollamaModel, prompt: text }),
+            })
+
+            if (response.ok) {
+              const data = await response.json()
+              if (data.embedding) {
+                // Convert float array to Buffer for storage in SQLite BLOB
+                return Buffer.from(new Float32Array(data.embedding).buffer);
+              }
+            }
+        } catch (e) {
+            // Ignore and try next candidate
+        }
     }
   } catch (err) {
     console.error('generateEmbedding error', err)
