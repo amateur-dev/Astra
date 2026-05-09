@@ -862,15 +862,14 @@ window.electronAPI.onRecordToggle(async (state) => {
     const ollamaModel = document.getElementById('ollamaModel').value.trim() || 'llama3.2'
     const autoPaste = document.getElementById('autoPaste') ? !!document.getElementById('autoPaste').checked : false
 
-    if (!whisperBin || !modelPath) {
-      document.getElementById('settingsResult').textContent = 'Please provide both binary and model path.'
-      return
+    // Build the transcribe command template if legacy fields are present, else fallback
+    let tpl = undefined;
+    if (whisperBin && modelPath) {
+      tpl = `${whisperBin} -m ${modelPath} -f {wav}`
     }
-    // Build the transcribe command template
-    const tpl = `${whisperBin} -m ${modelPath} -f {wav}`
+
     // include hotkey in saved settings if present
     const payload = { 
-      transcribe_cmd: tpl, 
       auto_transcribe: auto, 
       ffmpeg_path: ffmpegPath, 
       ollama_enabled: ollamaEnabled, 
@@ -880,6 +879,7 @@ window.electronAPI.onRecordToggle(async (state) => {
       ollama_model: ollamaModel, 
       auto_paste: autoPaste 
     };
+    if (tpl !== undefined) payload.transcribe_cmd = tpl;
     if (hotkeyValue) payload.hotkey = hotkeyValue;
     const payloadWithPolish = Object.assign({}, payload, { polish_while_transcribe: polishWhileValue })
     const r = await window.electronAPI.saveSettings(payloadWithPolish)
