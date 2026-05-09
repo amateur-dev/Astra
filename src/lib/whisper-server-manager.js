@@ -1,6 +1,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
-const { findBinary } = require('./whisper-utils');
+const { WHISPER_SERVER_PATH } = require('./paths');
+const fs = require('fs');
 
 class WhisperServerManager {
   constructor() {
@@ -14,9 +15,9 @@ class WhisperServerManager {
       return;
     }
 
-    const bin = await findBinary('whisper-server');
-    if (!bin) {
-      console.error('whisper-server binary not found. Real-time streaming will be unavailable.');
+    const bin = WHISPER_SERVER_PATH;
+    if (!fs.existsSync(bin)) {
+      console.error(`whisper-server binary not found at ${bin}. Real-time streaming will be unavailable.`);
       return;
     }
 

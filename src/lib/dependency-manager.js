@@ -206,5 +206,11 @@ module.exports = {
   installFFmpeg,
   installWhisper,
   downloadModel,
+  installPiper: async () => {
+    logger.info('installPiper placeholder called (not implemented in dependency manager yet)');
+  },
+  installVoiceModel: async () => {
+    logger.info('installVoiceModel placeholder called (not implemented in dependency manager yet)');
+  },
   MODELS
 };
