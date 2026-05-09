@@ -581,7 +581,7 @@ function registerHotkey (hotkey) {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Check Accessibility Permissions (MacOS)
   if (process.platform === 'darwin') {
       const isTrusted = systemPreferences.isTrustedAccessibilityClient(true);
@@ -589,6 +589,19 @@ app.whenReady().then(() => {
           console.warn('WARNING: Accessibility permissions missing. Prompting user...');
       } else {
           console.log('Accessibility permissions: GRANTED');
+      }
+
+      // Explicitly request microphone access to avoid silent failures
+      try {
+        const micStatus = systemPreferences.getMediaAccessStatus('microphone');
+        console.log(`Initial Microphone Status: ${micStatus}`);
+        if (micStatus !== 'granted') {
+          console.log('Prompting for microphone access...');
+          const granted = await systemPreferences.askForMediaAccess('microphone');
+          console.log(`Microphone access granted: ${granted}`);
+        }
+      } catch (err) {
+        console.error('Failed to request microphone access:', err);
       }
   }
 
@@ -690,36 +703,52 @@ ipcMain.handle('check-ollama', async () => {
       return { installed: false, running: false, error: 'No fetch implementation available' }
     }
 
-    const response = await localFetch(`${ollamaUrl}/api/tags`, {
-      method: 'GET',
-      // signal: AbortSignal.timeout(2000) // 2 second timeout - not supported by node-fetch 3.x directly without AbortController
-    })
-
-    if (response.ok) {
-      const data = await response.json()
-      const models = data.models || []
-
-      const hasConfiguredModel = models.some(m => m.name.includes(configuredModel))
-      const hasVisionModel = models.some(m => 
-        m.name.includes('vision') || 
-        m.name.includes('llava') || 
-        m.name.includes('llama3.2') ||
-        m.name.includes('qwen') || 
-        m.name.includes('gemma') ||
-        m.name.includes('bakllava')
-      )
-
-      return { 
-        installed: true,
-        running: true, 
-        models: models.map(m => m.name),
-        hasConfiguredModel,
-        hasVisionModel,
-        configuredModel
-      }
+    // Try configured URL, then fallback to 127.0.0.1 if it's localhost
+    const candidates = [ollamaUrl];
+    if (ollamaUrl.includes('localhost') && !ollamaUrl.includes('127.0.0.1')) {
+       candidates.push(ollamaUrl.replace('localhost', '127.0.0.1'));
     }
+
+    let lastError = null;
+    for (const url of candidates) {
+        try {
+            const response = await localFetch(`${url}/api/tags`, {
+              method: 'GET',
+            });
+
+            if (response.ok) {
+              const data = await response.json()
+              const models = data.models || []
+
+              const hasConfiguredModel = models.some(m => m.name.includes(configuredModel))
+              const hasVisionModel = models.some(m => 
+                m.name.includes('vision') || 
+                m.name.includes('llava') || 
+                m.name.includes('llama3.2') ||
+                m.name.includes('qwen') || 
+                m.name.includes('gemma') ||
+                m.name.includes('bakllava') ||
+                m.name.includes('moondream')
+              )
+
+              return { 
+                installed: true,
+                running: true, 
+                models: models.map(m => m.name),
+                hasConfiguredModel,
+                hasVisionModel,
+                configuredModel
+              }
+            }
+        } catch (e) {
+            lastError = e;
+        }
+    }
+    
+    console.error('Ollama check failed:', lastError);
     return { installed: true, running: false }
   } catch (err) {
+    console.error('Ollama check exception:', err);
     return { installed: false, running: false, error: String(err) }
   }
 })// Dependency Management IPC
