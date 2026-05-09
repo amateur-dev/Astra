@@ -916,6 +916,23 @@ window.electronAPI.onRecordToggle(async (state) => {
     const testBtn = document.getElementById('testSettingsBtn')
     if (saveBtn) saveBtn.addEventListener('click', saveSettings)
     if (testBtn) testBtn.addEventListener('click', testSettings)
+    
+    // Auto-save settings when checkboxes or inputs are changed in the new UI
+    const autoSaveElements = [
+      'autoPaste', 'ollamaEnabled', 'screenContextEnabled', 'enableAiCaveat',
+      'ollamaUrl', 'ollamaModel', 'hotkeyInput'
+    ];
+    autoSaveElements.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('change', saveSettings);
+        if (el.tagName === 'INPUT' && el.type === 'text') {
+          // Also save on blur for text inputs
+          el.addEventListener('blur', saveSettings);
+        }
+      }
+    });
+
     loadSettings()
         // Load settings
     loadSettings()
