@@ -49,6 +49,39 @@ const whisperServerManager = require('./lib/whisper-server-manager');
 const memoryManager = require('./lib/memory-manager');
 const TTS_HOTKEY = 'CommandOrControl+Shift+D';
 
+async function performMacOCR(dataUrl) {
+  try {
+    if (process.platform !== 'darwin') return null;
+    
+    // Save base64 to temp file
+    const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(base64Data, 'base64');
+    const tmpPath = path.join(os.tmpdir(), `ocr_tmp_${Date.now()}.jpg`);
+    fs.writeFileSync(tmpPath, buffer);
+    
+    // Compile and run swift script
+    const scriptPath = path.join(__dirname, 'lib', 'mac-ocr.swift');
+    const ocrText = await new Promise((resolve) => {
+      exec(`swift "${scriptPath}" "${tmpPath}"`, (error, stdout) => {
+        if (error) {
+          console.error('OCR execution failed:', error);
+          resolve(null);
+        } else {
+          resolve(stdout.trim());
+        }
+      });
+    });
+    
+    // Cleanup
+    try { fs.unlinkSync(tmpPath); } catch(e) {}
+    
+    return ocrText;
+  } catch (err) {
+    console.error('performMacOCR error:', err);
+    return null;
+  }
+}
+
 // Helper: Clean up temporary files
 async function cleanupTempFiles(forceAll = false) {
   try {
@@ -513,9 +546,38 @@ function toggleRecording(visionMode = false) {
   console.log('toggleRecording called, visionMode:', visionMode, 'current isRecording:', isRecording)
   
   if (!isRecording) {
+    // Warm up Ollama in the background (fire and forget)
+    if (store.get('ollama_enabled') === true) {
+      const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434';
+      const ollamaModel = store.get('ollama_model') || 'llama3.2';
+      const url = `${ollamaUrl.trim().replace(/\/+$/, '')}/api/generate`;
+      
+      // We use dynamic import for node-fetch to ensure it works in Electron main process
+      import('node-fetch').then(nodeFetch => {
+        const localFetch = nodeFetch.default;
+        localFetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // Sending an empty prompt with keep_alive loads the model into RAM without generating text
+          body: JSON.stringify({ model: ollamaModel, prompt: '', keep_alive: '5m' })
+        }).then(() => console.log('Ollama warmup triggered successfully'))
+          .catch(e => console.log('Ollama warmup failed silently:', e.message));
+      }).catch(e => console.log('Could not load node-fetch for warmup:', e.message));
+    }
+
     if (visionMode) {
-      captureScreen().then(dataUrl => {
-        screenContext = dataUrl;
+      captureScreen().then(async (dataUrl) => {
+        if (dataUrl) {
+          console.log('Running native macOS OCR for vision context...');
+          const ocrText = await performMacOCR(dataUrl);
+          if (ocrText && ocrText.length > 5) {
+            screenContext = ocrText;
+            console.log('OCR extracted text successfully.');
+          } else {
+            console.log('OCR extracted no meaningful text, falling back to pure image data.');
+            screenContext = dataUrl; // Fallback to sending raw image to Ollama if OCR fails
+          }
+        }
       });
     } else {
       screenContext = null;
@@ -1785,11 +1847,16 @@ async function polishWithOllama (text, semanticContext = "") {
     const memoryContext = memoryManager.getMemoryContext();
     
     let prompt = '';
+    
+    // Check if screenContext is actual OCR text or a fallback image dataURL
+    const isOCRText = screenContext && !screenContext.startsWith('data:image/');
+    const screenPromptString = isOCRText ? `\nTEXT VISIBLE ON THE USER'S SCREEN (USE THIS TO FIX JARGON/APP NAMES):\n"""\n${screenContext}\n"""\n` : (screenContext ? 'A screenshot of the user\'s screen is provided for visual context. Use it to correctly identify jargon, app names, or UI elements mentioned in the instruction.' : '');
+
     if (isCopilotMode) {
       if (copilotContext) {
         prompt = `You are an AI writing assistant.
 Your task is to edit, rewrite, or fulfill the following USER INSTRUCTION based on the provided TEXT.
-${screenContext ? 'A screenshot of the user\'s screen is provided for visual context. Use it to correctly identify jargon, app names, or UI elements mentioned in the instruction.' : ''}
+${screenPromptString}
 
 ${memoryContext}
 ${semanticContext}
@@ -1812,7 +1879,7 @@ IMPORTANT:
       } else {
         prompt = `You are an AI writing assistant.
 The user has provided a voice instruction, but NO text was selected. 
-${screenContext ? 'A screenshot of the user\'s screen is provided for visual context. Use it to correctly identify jargon, app names, or UI elements mentioned in the instruction.' : ''}
+${screenPromptString}
 
 ${memoryContext}
 ${semanticContext}
@@ -1832,7 +1899,7 @@ TASK:
   1) Remove any timestamps or timecodes.
   2) Remove any editorial caveats.
   3) Fix grammar, punctuation, and formatting.
-  ${screenContext ? '4) Use the provided screenshot as visual context to correct any spelling errors of jargon, names, or apps visible on the screen.' : ''}
+  ${screenPromptString ? `4) Use the following screen context to correct any spelling errors of jargon, names, or apps:\n${screenPromptString}` : ''}
   
   ${memoryContext}
   ${semanticContext}
@@ -1864,7 +1931,9 @@ TASK:
         const url = `${base.replace(/\/$/, '')}/api/generate`
         
         const body = { model: ollamaModel, prompt, stream: true };
-        if (screenContext) {
+        
+        // Only attach images array if it's a fallback base64 image, NOT if it's OCR text
+        if (screenContext && !isOCRText) {
           body.images = [screenContext.split(',')[1] || screenContext];
         }
 
