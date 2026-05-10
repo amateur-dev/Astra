@@ -1895,19 +1895,18 @@ TASK:
 3) Do NOT include any introductory phrases or caveats.`;
       }
     } else {
-      prompt = `Please perform the following on the transcript below:
-  1) Remove any timestamps or timecodes.
-  2) Remove any editorial caveats.
-  3) Fix grammar, punctuation, and formatting.
-  ${screenPromptString ? `4) Use the following screen context to correct any spelling errors of jargon, names, or apps:\n${screenPromptString}` : ''}
-  
-  ${memoryContext}
-  ${semanticContext}
+      prompt = `TRANSCRIPT CLEANUP TASK:
+- Remove all timestamps, timecodes, and editorial notes
+- Fix grammar, spelling, punctuation, and capitalization  
+- Make it readable and professional
+- Output ONLY the cleaned text, no explanations
 
-  Return ONLY the cleaned paragraph.
+${screenPromptString ? `SCREEN CONTEXT (use to fix jargon/app names): ${screenPromptString}` : ''}
+${memoryContext}
+${semanticContext}
 
-  Transcript:
-  ${text}`;
+CLEANED TRANSCRIPT:
+${text}`;
     }
 
     // Build an ordered list of candidate base URLs to try.
