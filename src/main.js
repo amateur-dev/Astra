@@ -1317,7 +1317,12 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
 
           // Append caveat if enabled
           if (store.get('enable_ai_caveat') !== false && finalText) {
-            const contextMsg = hadScreenContext ? ' + Screen Context' : '';
+            let contextMsg = '';
+            if (hadScreenContext && !polishError) {
+              contextMsg = ' + Screen Context';
+            } else if (hadScreenContext && polishError) {
+              contextMsg = ' (Screen Context Failed)';
+            }
             finalText = finalText.trim() + ` [Voice Note Transcribed Using AI${contextMsg}]`;
           }
 
