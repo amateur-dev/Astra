@@ -549,7 +549,7 @@ function toggleRecording(visionMode = false) {
     // Warm up Ollama in the background (fire and forget)
     if (store.get('ollama_enabled') === true) {
       const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434';
-      const ollamaModel = store.get('ollama_model') || 'llama3.2';
+      const ollamaModel = store.get('ollama_model') || 'qwen2.5:1.5b';
       const url = `${ollamaUrl.trim().replace(/\/+$/, '')}/api/generate`;
       
       // We use dynamic import for node-fetch to ensure it works in Electron main process
@@ -815,7 +815,7 @@ ipcMain.handle('check-ollama', async () => {
     }
 
     const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434'
-    const configuredModel = store.get('ollama_model') || 'llama3.2'
+    const configuredModel = store.get('ollama_model') || 'qwen2.5:1.5b'
 
     if (!localFetch) {
       return { installed: false, running: false, error: 'No fetch implementation available' }
@@ -1810,7 +1810,7 @@ async function callOllama(prompt) {
     }
 
     const configuredUrl = store.get('ollama_url') || 'http://localhost:11434'
-    const ollamaModel = store.get('ollama_model') || 'llama3.2'
+    const ollamaModel = store.get('ollama_model') || 'qwen2.5:1.5b'
     
     const url = `${configuredUrl.trim().replace(/\/+$/, '')}/api/generate`
     const response = await localFetch(url, {
@@ -1843,7 +1843,7 @@ async function polishWithOllama (text, semanticContext = "") {
     }
 
     const configuredUrl = store.get('ollama_url') || 'http://localhost:11434'
-    const ollamaModel = store.get('ollama_model') || 'llama3.2'
+    const ollamaModel = store.get('ollama_model') || 'qwen2.5:1.5b'
     const memoryContext = memoryManager.getMemoryContext();
     
     let prompt = '';
@@ -2032,7 +2032,7 @@ async function generateEmbedding (text) {
     if (!text || !localFetch) return null;
 
     const configuredUrl = store.get('ollama_url') || 'http://localhost:11434'
-    const ollamaModel = store.get('ollama_model') || 'llama3.2' // Most modern models support embedding
+    const ollamaModel = store.get('ollama_model') || 'qwen2.5:1.5b' // Most modern models support embedding
 
     const candidates = [configuredUrl];
     if (configuredUrl.includes('localhost') && !configuredUrl.includes('127.0.0.1')) {

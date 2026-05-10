@@ -773,7 +773,7 @@ window.electronAPI.onRecordToggle(async (state) => {
       const tpl = r && r.transcribe_cmd ? r.transcribe_cmd : ''
       const auto = r && r.auto_transcribe === true
       const ollamaUrl = r && r.ollama_url ? r.ollama_url : 'http://localhost:11434'
-      const ollamaModel = r && r.ollama_model ? r.ollama_model : 'llama3.2'
+      const ollamaModel = r && r.ollama_model ? r.ollama_model : 'qwen2.5:1.5b'
   const ollamaEnabled = r && r.ollama_enabled === true
   const enableAiCaveat = (r && r.enable_ai_caveat !== undefined) ? r.enable_ai_caveat : true
   const autoPaste = (r && r.auto_paste !== undefined) ? r.auto_paste : true // Default to true if undefined
@@ -859,7 +859,7 @@ window.electronAPI.onRecordToggle(async (state) => {
     const enableAiCaveatCheckbox = document.getElementById('enableAiCaveat')
     const enableAiCaveat = enableAiCaveatCheckbox ? !!enableAiCaveatCheckbox.checked : true
     const ollamaUrl = document.getElementById('ollamaUrl').value.trim() || 'http://localhost:11434'
-    const ollamaModel = document.getElementById('ollamaModel').value.trim() || 'llama3.2'
+    const ollamaModel = document.getElementById('ollamaModel').value.trim() || 'qwen2.5:1.5b'
     const autoPaste = document.getElementById('autoPaste') ? !!document.getElementById('autoPaste').checked : false
     const visionHotkeyValue = document.getElementById('visionHotkeyInput') ? document.getElementById('visionHotkeyInput').value.trim() : '';
 
