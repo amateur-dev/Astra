@@ -19,7 +19,8 @@ test('Renderer UI elements should correctly extract state for saving', async (t)
     'whisperBin': { value: '/path/to/whisper', type: 'text' },
     'modelPath': { value: '/path/to/model', type: 'text' },
     'ffmpegPath': { value: '/path/to/ffmpeg', type: 'text' },
-    'hotkeyInput': { value: 'Cmd+P', type: 'text' }
+    'hotkeyInput': { value: 'Cmd+P', type: 'text' },
+    'visionHotkeyInput': { value: 'Cmd+Shift+V', type: 'text' }
   };
 
   global.document = {
@@ -55,8 +56,8 @@ test('Renderer UI elements should correctly extract state for saving', async (t)
     assert.equal(resultPayload.transcribe_cmd, '/path/to/whisper -m /path/to/model -f {wav}');
   });
 
-  await t.test('Should capture screenContextEnabled', () => {
-    assert.equal(resultPayload.screen_context_enabled, true);
+  await t.test('Should capture vision_hotkey', () => {
+    assert.equal(resultPayload.vision_hotkey, 'Cmd+Shift+V'); 
   });
 
   await t.test('Should capture enableAiCaveat', () => {
