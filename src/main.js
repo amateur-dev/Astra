@@ -48,7 +48,6 @@ let fetch;
 const whisperServerManager = require('./lib/whisper-server-manager');
 const memoryManager = require('./lib/memory-manager');
 const TTS_HOTKEY = 'CommandOrControl+Shift+D';
-const COPILOT_HOTKEY = 'CommandOrControl+Option+Shift+V';
 
 // Helper: Clean up temporary files
 async function cleanupTempFiles(forceAll = false) {
@@ -510,13 +509,11 @@ async function captureSelectedText() {
   });
 }
 
-function toggleRecording(copilot = false) {
-  console.log('toggleRecording called, copilot:', copilot, 'current isRecording:', isRecording)
+function toggleRecording(visionMode = false) {
+  console.log('toggleRecording called, visionMode:', visionMode, 'current isRecording:', isRecording)
   
   if (!isRecording) {
-    // Capture screen context if enabled, or if in Copilot Mode (high-power feature)
-    const screenEnabled = store.get('screen_context_enabled') === true;
-    if (screenEnabled || copilot) {
+    if (visionMode) {
       captureScreen().then(dataUrl => {
         screenContext = dataUrl;
       });
@@ -524,16 +521,13 @@ function toggleRecording(copilot = false) {
       screenContext = null;
     }
 
-    if (copilot) {
-      isCopilotMode = true;
-      captureSelectedText().then(text => {
-        copilotContext = text;
-        console.log('Copilot context captured:', text ? text.substring(0, 50) + '...' : 'NONE');
-      });
-    } else {
-      isCopilotMode = false;
-      copilotContext = null;
-    }
+    // Always attempt to capture selected text for better context
+    captureSelectedText().then(text => {
+      copilotContext = text;
+      // If we have selected text or we are in vision mode, treat this as a "Copilot/Instruction" task
+      isCopilotMode = !!text || visionMode;
+      console.log('Text context captured:', text ? text.substring(0, 50) + '...' : 'NONE', 'isCopilotMode:', isCopilotMode);
+    });
   }
 
   isRecording = !isRecording
@@ -615,13 +609,14 @@ function registerHotkey (hotkey) {
       console.log('TTS Hotkey registered:', TTS_HOTKEY)
     }
 
-    // --- Copilot Hotkey Integration ---
-    if (hotkey !== COPILOT_HOTKEY && TTS_HOTKEY !== COPILOT_HOTKEY) {
-      globalShortcut.register(COPILOT_HOTKEY, () => {
-        console.log('Copilot Hotkey pressed')
+    // --- Vision/Copilot Hotkey Integration ---
+    const visionHotkey = store.get('vision_hotkey') || 'CommandOrControl+Option+Shift+V';
+    if (hotkey !== visionHotkey && TTS_HOTKEY !== visionHotkey) {
+      globalShortcut.register(visionHotkey, () => {
+        console.log('Vision Hotkey pressed')
         toggleRecording(true);
       });
-      console.log('Copilot Hotkey registered:', COPILOT_HOTKEY)
+      console.log('Vision Hotkey registered:', visionHotkey)
     }
 
     if (!hotkey) {
@@ -896,11 +891,11 @@ ipcMain.handle('get-settings', async () => {
     ollama_url: store.get('ollama_url'),
     ollama_model: store.get('ollama_model'),
     ollama_enabled: store.get('ollama_enabled'),
-    screen_context_enabled: store.get('screen_context_enabled'),
     enable_ai_caveat: store.get('enable_ai_caveat'),
     auto_paste: store.get('auto_paste') !== undefined ? store.get('auto_paste') : true, // Default to true if undefined
     ffmpeg_path: store.get('ffmpeg_path'),
     hotkey: store.get('hotkey'),
+    vision_hotkey: store.get('vision_hotkey'),
     model: store.get('model')
   }
 })
@@ -911,14 +906,23 @@ ipcMain.handle('save-settings', async (event, settings) => {
   if (settings.ollama_url !== undefined) store.set('ollama_url', settings.ollama_url)
   if (settings.ollama_model !== undefined) store.set('ollama_model', settings.ollama_model)
   if (settings.ollama_enabled !== undefined) store.set('ollama_enabled', settings.ollama_enabled)
-  if (settings.screen_context_enabled !== undefined) store.set('screen_context_enabled', settings.screen_context_enabled)
   if (settings.enable_ai_caveat !== undefined) store.set('enable_ai_caveat', settings.enable_ai_caveat)
   if (settings.auto_paste !== undefined) store.set('auto_paste', settings.auto_paste)
   if (settings.ffmpeg_path !== undefined) store.set('ffmpeg_path', settings.ffmpeg_path)
+  
+  if (settings.vision_hotkey !== undefined) {
+    store.set('vision_hotkey', settings.vision_hotkey)
+  }
+  
   if (settings.hotkey !== undefined) {
     store.set('hotkey', settings.hotkey)
-    registerHotkey(settings.hotkey)
   }
+  
+  // Re-register hotkeys if either one changed
+  if (settings.hotkey !== undefined || settings.vision_hotkey !== undefined) {
+    registerHotkey(store.get('hotkey'))
+  }
+  
   if (settings.model !== undefined) store.set('model', settings.model)
   return true
 })
@@ -1291,7 +1295,7 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
             } else {
               polishError = polished ? polished.error : 'AI polish failed'
               polishErrors = polished ? polished.errors : null
-              console.error('AI polishing failed:', polishError)
+              console.error('AI polishing failed:', polishError, polishErrors)
             }
           }
           
@@ -1864,12 +1868,17 @@ TASK:
           body.images = [screenContext.split(',')[1] || screenContext];
         }
 
+        // Add a 60 second timeout so the app doesn't hang infinitely if Ollama is stuck
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+
         const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
-          // small timeout not directly supported by node-fetch v3; rely on default
-        })
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
         
         if (!response.ok) {
           const txt = await response.text().catch(() => '')
