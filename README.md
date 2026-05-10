@@ -1,67 +1,139 @@
-# Voice Hotkey (macOS)
+# Voice Hotkey 🎤✨
 
-A powerful, local-first voice dictation tool for macOS. Press a hotkey, speak, and have your text typed directly into any application. Powered by [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) for privacy and speed, with optional LLM polishing via [Ollama](https://ollama.ai).
+**Your personal voice assistant that types for you — no internet required.**
 
-![Status](https://img.shields.io/badge/status-beta-blue)
-![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
+Press a hotkey, speak, and watch your words appear in any app. It's like magic, but it's just really good technology.
+
+![macOS](https://img.shields.io/badge/macOS-hello%20beautiful-white)
+![Status](https://img.shields.io/badge/status-live-brightgreen)
 ![Downloads](https://img.shields.io/github/downloads/amateur-dev/local-hotkey-voice-mac-app/total?color=brightgreen)
 
-> **[Download the latest version for macOS](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases/latest)**
+> **[⬇️ Download for macOS](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases/latest)**
 
-## Features
+---
 
--   **Dual Hotkeys**: Two modes for different use cases:
-    -   **Standard Voice** (`Cmd+Shift+V`): Fast voice-to-text without screenshots
-    -   **Vision Voice** (`Cmd+Shift+O`): Voice + screenshot OCR for context-aware transcription
--   **Native macOS OCR**: Uses Apple Vision Framework for instant text extraction from screenshots (0 RAM, no cloud)
--   **Smart Polishing**: Automatic grammar, punctuation, and formatting via Ollama with background warmup
--   **Floating Overlay**: Minimal, non-intrusive recording UI with waveform visualization
--   **Local Transcription**: Uses Whisper.cpp for offline, private, and fast speech-to-text
--   **Auto-Paste**: Automatically types the transcribed text into your active application
--   **System Integration**:
-    -   Does not steal focus from your active window
-    -   Dynamic menu bar icons (Idle / Recording / Processing)
-    -   "Screen Saver" window level ensures visibility over fullscreen apps
--   **Apple Silicon Optimized**: Ollama uses MLX framework on M1/M2/M3/M4 chips for 2-4x faster inference
+## What's This Thing Do?
 
-## Prerequisites
+- **Two Hotkeys, Two Superpowers:**
+  - `Cmd+Shift+V` → Quick voice-to-text (super fast ⚡)
+  - `Cmd+Shift+O` → Voice + screenshot OCR (context-aware, catches UI text, app names, buttons, etc.)
+- **Smart Text Fixer** → Auto-corrects grammar & punctuation using a tiny local AI model (0.5s, not 15s)
+- **Native OCR** → Apple Vision Framework reads your screen (zero extra RAM, zero cloud)
+- **Offline & Private** → Everything happens on your Mac. Your voice never leaves your computer.
+- **Auto-Paste** → Types the transcribed text directly into whatever app you're using
+- **Floating UI** → Minimal recording window that plays nice with fullscreen apps
 
-**For Users (DMG App):**
--   **macOS** (Apple Silicon or Intel)
--   **Ollama** (optional, for LLM polishing): [Download](https://ollama.ai)
--   *Note: On first run, the app will ask to download a speech model (~400MB) and Whisper.cpp*
+---
 
-**For Developers (Source Code):**
-If you want to build the app from source:
-1.  **Node.js** (v18+)
-2.  **FFmpeg**: `brew install ffmpeg`
-3.  **Whisper.cpp**: `whisper-cli` binary in your PATH
+## Quick Start
 
-## Installation & Setup
+### 1️⃣ Download & Install
 
-### Option A: Download App (Recommended)
+1. Go to **[Releases](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases)** and grab:
+   - **Apple Silicon Mac** (M1/M2/M3/M4): `voice-hotkey-electron-x.x.x-arm64.dmg`
+   - **Intel Mac**: `voice-hotkey-electron-x.x.x.dmg`
+2. Drag to **Applications** folder
+3. **First time? macOS might complain** (it's a non-signed app thing). Just:
+   - Go to **System Settings → Privacy & Security → Security**
+   - Click **Open Anyway**
+   - Done! 🎉
 
-1.  **Download**: Go to the [Releases Page](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases) and download the `.dmg` file:
-    -   **Apple Silicon (M1/M2/M3/M4)**: Download `voice-hotkey-electron-x.x.x-arm64.dmg`
-    -   **Intel Mac**: Download `voice-hotkey-electron-x.x.x.dmg`
+### 2️⃣ First Launch
 
-2.  **Install**: Open the `.dmg` and drag the app to **Applications**.
+On first run, the app will:
+- Ask permission for microphone 🎙️
+- Download a speech model (~400MB, one-time)
+- Optionally install Ollama for text polishing (we'll cover this below)
 
-    > **Note on Security Warning**:
-    > Since this app is not signed with a paid Apple Developer ID, macOS will show "cannot be opened because the developer cannot be verified". **This is normal for open-source apps.**
+### 3️⃣ Start Using
 
-3.  **First Launch (Bypassing Security)**:
-    1.  Double-click the app -> Click **Done** or **Cancel** on warning.
-    2.  Open **System Settings** -> **Privacy & Security**.
-    3.  Scroll to "Security" -> Click **Open Anyway**.
-    4.  *(You only need to do this once)*.
+| What You Want | Press | What Happens |
+|---------------|-------|--------------|
+| **Quick voice note** | `Cmd+Shift+V` | Speak → Stop → Text appears in your app |
+| **Voice + screen context** | `Cmd+Shift+O` | Speak → Screenshot → OCR context → Text appears |
 
-4.  **Setup Wizard**:
-    -   App shows welcome screen with system component status
-    -   Select a speech model (e.g., "Small") and download
-    -   Optionally install Ollama for LLM polishing
+> **Tip:** Press `Escape` during recording to cancel.
 
-### Option B: Build from Source
+---
+
+## The "Smart Polish" Feature (Optional but 🔥)
+
+Want your transcribed text to be grammar-perfect? Install **Ollama** — a tiny local AI that runs on your Mac.
+
+### Setup Ollama
+
+```bash
+# Install (if you haven't)
+brew install ollama
+
+# Start it (runs in background)
+ollama serve
+
+# Pull our recommended model (397MB, ~0.5s per polish)
+ollama pull qwen2.5:0.5b
+```
+
+That's it! The app automatically connects to Ollama and polishes your text.
+
+### Why qwen2.5:0.5b?
+
+| Model | Size | Speed | Verdict |
+|-------|------|-------|---------|
+| qwen2.5:0.5b | 397MB | ~0.5s | ⭐ **Perfect** |
+| qwen2.5:1.5b | 1GB | ~1s | Good |
+| phi4-mini | 2.5GB | ~9s | Too slow |
+| gemma4 | 7GB | ~15s | Thinking mode = unusable |
+
+If you want to try other models, just run `ollama pull <model-name>` and change it in Settings.
+
+---
+
+## Settings & Config
+
+Click the **Tray Icon** (in menu bar) → **Settings** to customize:
+
+| Option | What It Does |
+|--------|--------------|
+| **Hotkeys** | Change `Cmd+Shift+V` / `Cmd+Shift+O` to whatever you like |
+| **Auto-Paste** | Toggle automatic typing into your active app |
+| **Polish Mode** | Turn AI text fixing on/off |
+| **Ollama URL** | Usually `http://localhost:11434` (don't change unless you know what you're doing) |
+
+---
+
+## Under the Hood
+
+1. **Your Voice** → Recorded via macOS microphone
+2. **Whisper.cpp** → Transcribes locally (no cloud, complete privacy)
+3. **Ollama** (optional) → Fixes grammar/punctuation in ~0.5s
+4. **Auto-Type** → Uses Mac's accessibility APIs to type into your active app
+
+For Vision Mode (`Cmd+Shift+O`):
+1. **Screenshot** → Captured via `screencapture`
+2. **Apple Vision Framework** → Extracts text from screen (native, zero RAM)
+3. **LLM Context** → Uses extracted text to correctly handle UI elements, button names, etc.
+
+---
+
+## Troubleshooting
+
+### "Whisper not found" or "Library not loaded"
+- Make sure you have `whisper-cli` in your PATH, or use the pre-built DMG which includes it.
+
+### Ollama not responding
+- Run `ollama serve` in Terminal
+- Check Settings → Ollama URL is `http://localhost:11434`
+- Run `ollama list` to see available models
+
+### Hotkeys not working?
+- Go to **System Settings → Privacy & Security → Accessibility** and enable Voice Hotkey
+
+### Still stuck?
+- **[Open an issue](https://github.com/amateur-dev/local-hotkey-voice-mac-app/issues)** — we'll help!
+
+---
+
+## Build from Source (For Developers)
 
 ```bash
 git clone https://github.com/amateur-dev/local-hotkey-voice-mac-app.git
@@ -70,122 +142,40 @@ npm install
 npm start
 ```
 
-## Usage
+**Requirements:**
+- Node.js 18+
+- FFmpeg (`brew install ffmpeg`)
+- whisper-cli in PATH
 
-### Standard Voice Mode
-1.  Press `Cmd+Shift+V` to start recording
-2.  Speak your text
-3.  Press `Cmd+Shift+V` again to stop
-4.  Text is automatically typed into your active window
-
-### Vision Voice Mode (with Screen Context)
-1.  Press `Cmd+Shift+O` to start recording
-2.  Speak your text
-3.  App takes a screenshot and extracts text via native OCR
-4.  The extracted text is used to correct jargon, app names, etc.
-5.  Text is automatically typed into your active window
-
-### Cancel Recording
-Press `Escape` during recording to cancel.
-
-## Configuration
-
-Click "Settings" in the main window (via Tray icon) to configure:
-
-| Setting | Description |
-|---------|-------------|
-| **Global Hotkeys** | Customize Standard (`Cmd+Shift+V`) and Vision (`Cmd+Shift+O`) shortcuts |
-| **Auto-Paste** | Toggle automatic typing into active application |
-| **Ollama URL** | Set custom Ollama endpoint (default: `http://localhost:11434`) |
-| **Ollama Model** | Choose LLM for polishing (default: `qwen2.5:0.5b`) |
-| **Polish Mode** | Enable/disable automatic grammar/spelling correction |
-
-## Ollama Setup (Optional)
-
-For LLM-powered text polishing:
-
-1.  **Install Ollama**: [Download](https://ollama.ai) or `brew install ollama`
-2.  **Start Ollama**: `ollama serve` (runs in background)
-3.  **Verify**: `ollama list` should show `qwen2.5:0.5b` model
-
-### Recommended Model: qwen2.5:0.5b
-
-We recommend `qwen2.5:0.5b` (397MB) for the best balance of speed and quality:
-
--   **Speed**: ~0.7 seconds per polish (vs 8-15s for larger models)
--   **Quality**: Good grammar/punctuation correction
--   **Memory**: Only 397MB RAM (vs 6-8GB for larger models)
--   **Apple Silicon**: Ollama uses MLX framework for 2-4x faster inference on M1/M2/M3/M4 chips
-
-To change the model:
-```bash
-# Pull a different model
-ollama pull qwen2.5:1.5b
-
-# Then select it in app Settings
-```
-
-### Troubleshooting Ollama
-
--   **Ollama not running**: Start with `ollama serve`
--   **Model not found**: Run `ollama pull qwen2.5:0.5b`
--   **Connection refused**: Check Ollama URL in Settings (default: `http://localhost:11434`)
-
-## How It Works
-
-### Voice Transcription
-1.  Audio is captured via macOS microphone
-2.  Whisper.cpp transcribes locally (no cloud, complete privacy)
-3.  Text is automatically typed into the active application
-
-### LLM Polishing (Optional)
-1.  Text is sent to Ollama (localhost)
-2.  Prompt instructs model to clean grammar/punctuation
-3.  Response timeout: 60 seconds (prevents infinite hangs)
-4.  Polished text replaces original
-
-### Vision Mode with OCR
-1.  Screenshot captured using macOS screencapture
-2.  Apple Vision Framework extracts text (native, 0 RAM)
-3.  Extracted text used as context for LLM polishing
-4.  Corrects jargon, app names, UI text automatically
-
-## Development
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development instructions.
-
-### Running Tests
-```bash
-npm test
-```
-
-### Environment Diagnostics
-```bash
-npm run doctor
-```
+---
 
 ## Tech Stack
 
--   **Electron**: Desktop app framework
--   **Whisper.cpp**: Local speech-to-text (C++ port of OpenAI Whisper)
--   **Ollama**: Local LLM inference with MLX optimization for Apple Silicon
--   **Apple Vision Framework**: Native OCR for screen context
--   **Node.js**: Backend logic
+- **Electron** — Desktop app framework
+- **Whisper.cpp** — Local speech-to-text (OpenAI's Whisper, but faster)
+- **Ollama** — Local LLM with MLX optimization for Apple Silicon (2-4x faster on M1/M2/M3/M4)
+- **Apple Vision Framework** — Native OCR (zero RAM)
+- **Node.js** — Backend magic
 
-## Feedback & Support
+---
 
--   **Report a Bug**: [Open a new issue](https://github.com/amateur-dev/local-hotkey-voice-mac-app/issues/new?labels=bug)
--   **Request a Feature**: [Open a new issue](https://github.com/amateur-dev/local-hotkey-voice-mac-app/issues/new?labels=enhancement)
+## Like This? ❤️
+
+- ⭐ **Star the repo** if it made your life easier
+- 🐛 **Report bugs** at [Issues](https://github.com/amateur-dev/local-hotkey-voice-mac-app/issues)
+- 💡 **Suggest features** — we're all ears!
+
+---
 
 ## Author
 
 **Dipesh Sukhani**
--   Website: [dipeshsukhani.dev](https://dipeshsukhani.dev)
--   Email: [me@dipeshsukhani.dev](mailto:me@dipeshsukhani.dev)
--   LinkedIn: [linkedin.com/in/dipeshsukhani](https://linkedin.com/in/dipeshsukhani)
--   Twitter: [@dipesh_sukhani](https://x.com/dipesh_sukhani)
--   GitHub: [@amateur-dev](https://github.com/amateur-dev)
+- 🌐 [dipeshsukhani.dev](https://dipeshsukhani.dev)
+- 📧 [me@dipeshsukhani.dev](mailto:me@dipeshsukhani.dev)
+- 💼 [LinkedIn](https://linkedin.com/in/dipeshsukhani)
+- 🐦 [@dipesh_sukhani](https://x.com/dipesh_sukhani)
+- 🐙 [@amateur-dev](https://github.com/amateur-dev)
 
-## License
+---
 
-MIT
+**MIT License** — Use it, break it, improve it. That's the spirit. 🚀
