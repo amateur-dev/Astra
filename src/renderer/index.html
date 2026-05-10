@@ -55,13 +55,21 @@
           <h4 style="margin:0 0 12px 0; font-size:15px; color:#333;">Recording</h4>
           
           <div style="margin-bottom:12px;">
-            <label style="font-size:14px; color:#666;">Global Hotkey</label>
+            <label style="font-size:14px; color:#666;">Standard Hotkey</label>
             <div style="display:flex; gap:8px; margin-top:6px; align-items:center;">
               <input id="hotkeyInput" type="text" style="flex:1; padding:8px; border:1px solid #e6e6e6; border-radius:6px; font-family:monospace;" placeholder="CommandOrControl+Shift+V" />
-              <button id="setHotkeyBtn" class="btn" style="white-space:nowrap;">Set Hotkey</button>
-              <button id="clearHotkeyBtn" class="btn" style="white-space:nowrap;">Clear</button>
+              <button id="setHotkeyBtn" class="btn" style="white-space:nowrap;">Set</button>
             </div>
-            <div style="margin-top:4px; color:#999; font-size:12px">Press keys to set hotkey, or type manually</div>
+            <div style="margin-top:4px; color:#999; font-size:12px">Audio + Selected Text (Context)</div>
+          </div>
+
+          <div style="margin-bottom:12px;">
+            <label style="font-size:14px; color:#666;">Vision Hotkey</label>
+            <div style="display:flex; gap:8px; margin-top:6px; align-items:center;">
+              <input id="visionHotkeyInput" type="text" style="flex:1; padding:8px; border:1px solid #e6e6e6; border-radius:6px; font-family:monospace;" placeholder="CommandOrControl+Option+Shift+V" />
+              <button id="setVisionHotkeyBtn" class="btn" style="white-space:nowrap;">Set</button>
+            </div>
+            <div style="margin-top:4px; color:#999; font-size:12px">Audio + Selected Text + Screenshot</div>
           </div>
 
           <div style="margin-bottom:12px;">
@@ -87,15 +95,6 @@
               <span style="font-size:11px; color:#999; background:#f0f0f0; padding:2px 6px; border-radius:4px;">Optional</span>
             </label>
             <div style="margin-top:4px; margin-left:26px; color:#999; font-size:12px">Requires Ollama to be installed on your system</div>
-          </div>
-          
-          <div style="margin-bottom:12px;">
-            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-              <input id="screenContextEnabled" type="checkbox" style="width:18px; height:18px; cursor:pointer;" />
-              <span style="font-size:14px; color:#333;">Enable Screen Context Support</span>
-              <span style="font-size:11px; color:#999; background:#f0f0f0; padding:2px 6px; border-radius:4px;">Vision</span>
-            </label>
-            <div style="margin-top:4px; margin-left:26px; color:#999; font-size:12px">Takes a screenshot during recording to give Ollama visual context</div>
           </div>
 
           <div style="margin-bottom:12px;">
