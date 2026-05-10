@@ -10,7 +10,7 @@
   "scripts": {
     "start": "electron .",
     "doctor": "electron scripts/doctor.js",
-    "test": "node --test test/**/*.test.js",
+    "test": "npm rebuild better-sqlite3 && node --test test/**/*.test.js && npx electron-rebuild -f -w better-sqlite3",
     "build": "electron-builder --mac",
     "dist": "electron-builder --mac --x64",
     "dist:arm64": "electron-builder --mac --arm64",
