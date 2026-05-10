@@ -2,9 +2,14 @@ const assert = require('node:assert').strict;
 const { test } = require('node:test');
 
 // We mock the logic found in src/main.js to verify it works as intended
-function getFinalText(text, enableCaveat, hadScreenContext = false) {
+function getFinalText(text, enableCaveat, hadScreenContext = false, polishError = null) {
   if (enableCaveat !== false && text) {
-    const contextMsg = hadScreenContext ? ' + Screen Context' : '';
+    let contextMsg = '';
+    if (hadScreenContext && !polishError) {
+      contextMsg = ' + Screen Context';
+    } else if (hadScreenContext && polishError) {
+      contextMsg = ' (Screen Context Failed)';
+    }
     return text.trim() + ` [Voice Note Transcribed Using AI${contextMsg}]`;
   }
   return text;
@@ -20,6 +25,12 @@ test('AI Caveat is appended correctly when screen context is present', () => {
   const input = 'Hello world';
   const expected = 'Hello world [Voice Note Transcribed Using AI + Screen Context]';
   assert.equal(getFinalText(input, true, true), expected);
+});
+
+test('AI Caveat shows failure state if Ollama fails', () => {
+  const input = 'Hello world';
+  const expected = 'Hello world [Voice Note Transcribed Using AI (Screen Context Failed)]';
+  assert.equal(getFinalText(input, true, true, new Error('Ollama not running')), expected);
 });
 
 test('AI Caveat is NOT appended when disabled', () => {
