@@ -188,6 +188,8 @@ function createWindow () {
     ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
       console.log('Permission request for', permission, 'details=', details)
       if (permission === 'media') return callback(true)
+      if (permission === 'clipboard-sanitized-write') return callback(true)
+      if (permission === 'clipboard-read') return callback(true)
       // default: deny other permissions
       return callback(false)
     })
