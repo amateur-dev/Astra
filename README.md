@@ -1,4 +1,4 @@
-# Voice Hotkey 🎤✨
+# Astra 🎤✨
 
 **Your personal voice assistant that types for you — no internet required.**
 
@@ -9,6 +9,12 @@ Press a hotkey, speak, and watch your words appear in any app. It's like magic, 
 ![Downloads](https://img.shields.io/github/downloads/amateur-dev/local-hotkey-voice-mac-app/total?color=brightgreen)
 
 > **[⬇️ Download for macOS](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases/latest)**
+
+<div align="center">
+  <img src="docs/assets/astra-main-ui.png" width="400" alt="Astra Main UI" />
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/assets/astra-settings-ui.png" width="400" alt="Astra Settings UI" />
+</div>
 
 ---
 
@@ -126,7 +132,7 @@ For Vision Mode (`Cmd+Shift+O`):
 - Run `ollama list` to see available models
 
 ### Hotkeys not working?
-- Go to **System Settings → Privacy & Security → Accessibility** and enable Voice Hotkey
+- Go to **System Settings → Privacy & Security → Accessibility** and enable Astra
 
 ### Still stuck?
 - **[Open an issue](https://github.com/amateur-dev/local-hotkey-voice-mac-app/issues)** — we'll help!

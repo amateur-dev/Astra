@@ -39,37 +39,28 @@ function getTranscriptElement (createIfMissing) {
     // heading
     const h3 = document.createElement('h3')
     h3.textContent = 'Transcript'
-    h3.style.marginTop = '12px'
     // preformatted transcript area
     const pre = document.createElement('pre')
     pre.id = 'transcript'
-    pre.style.whiteSpace = 'pre-wrap'
-    pre.style.background = '#f6f6f6'
-    pre.style.padding = '8px'
-    pre.style.borderRadius = '4px'
-    pre.style.display = 'block'
     // toolbar (Copy button) below transcript
     const toolbar = document.createElement('div')
-    toolbar.style.display = 'flex'
-    toolbar.style.justifyContent = 'flex-start'
-    toolbar.style.gap = '8px'
-    toolbar.style.marginTop = '8px'
+    toolbar.className = 'toolbar'
     const copyBtn = document.createElement('button')
     copyBtn.id = 'copyBtn'
-    copyBtn.className = 'btn'
+    copyBtn.className = 'btn-small'
     copyBtn.textContent = 'Copy'
     toolbar.appendChild(copyBtn)
     // Polish (Ollama) button - hidden by default (enabled if user has Ollama configured)
     const polishBtn = document.createElement('button')
     polishBtn.id = 'polishBtn'
-    polishBtn.className = 'btn'
+    polishBtn.className = 'btn-small'
     polishBtn.textContent = 'Polish (Ollama)'
     polishBtn.style.display = 'none'
     toolbar.appendChild(polishBtn)
     // Toggle: Raw / Polished
     const toggleBtn = document.createElement('button')
     toggleBtn.id = 'toggleRawBtn'
-    toggleBtn.className = 'btn'
+    toggleBtn.className = 'btn-small'
     toggleBtn.textContent = 'Show Raw'
     toggleBtn.style.display = 'none'
     toolbar.appendChild(toggleBtn)
@@ -374,7 +365,7 @@ async function startRecording () {
     }
     recording = true
     status.textContent = 'Recording...'
-    btn.textContent = 'Stop Recording'
+    btn.classList.add('recording')
   } catch (err) {
     status.textContent = 'Microphone access denied or unavailable'
     console.error('startRecording error', err)
@@ -385,7 +376,7 @@ async function stopRecording () {
   // Update UI immediately
   recording = false
   status.textContent = 'Stopping...'
-  btn.textContent = 'Start Recording'
+  btn.classList.remove('recording')
   
   // Stop the media stream tracks first
   try {
@@ -737,7 +728,7 @@ window.electronAPI.onRecordToggle(async (state) => {
     clearBtn.addEventListener('click', () => {
       removeTranscript()
       // ensure record button is enabled and text resets
-      try { btn.disabled = false; btn.textContent = 'Start Recording'; } catch (e) {}
+      try { btn.disabled = false; btn.classList.remove('recording'); } catch (e) {}
     })
   }
 })()

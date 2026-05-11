@@ -91,7 +91,7 @@ async function cleanupTempFiles(forceAll = false) {
     const maxAge = forceAll ? 0 : 24 * 60 * 60 * 1000; // 24 hours
 
     for (const file of files) {
-      if (file.startsWith('voicehotkey-') || file.startsWith('streaming-')) {
+      if (file.startsWith('astra-') || file.startsWith('streaming-')) {
         const filePath = path.join(tmpDir, file);
         const stats = await fs.promises.stat(filePath);
         if (now - stats.mtimeMs > maxAge) {
@@ -223,7 +223,7 @@ function createTray () {
     }},
     { label: 'Quit', click: () => { app.quit() } }
   ])
-  tray.setToolTip('Voice Hotkey')
+  tray.setToolTip('Astra')
   tray.setContextMenu(contextMenu)
 }
 
@@ -236,11 +236,11 @@ function updateTrayIcon(state) {
   
   // Update tooltip
   const tooltips = {
-    idle: 'Voice Hotkey - Ready',
-    recording: 'Voice Hotkey - Recording',
-    processing: 'Voice Hotkey - Processing'
+    idle: 'Astra - Ready',
+    recording: 'Astra - Recording',
+    processing: 'Astra - Processing'
   }
-  tray.setToolTip(tooltips[state] || 'Voice Hotkey')
+  tray.setToolTip(tooltips[state] || 'Astra')
   console.log(`Tray state updated to: ${state}`)
 }
 
@@ -1265,7 +1265,7 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
     // If the incoming buffer looks like WAV (RIFF), name it as .wav; otherwise use .webm
     const isWav = buffer.length >= 4 && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46
     const ext = isWav ? 'wav' : 'webm'
-    const filename = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.${ext}`)
+    const filename = path.join(os.tmpdir(), `astra-${Date.now()}.${ext}`)
     await fs.promises.writeFile(filename, buffer)
     console.log('Saved recording to:', filename)
     // If auto_transcribe is enabled in settings (defaults to true), run transcription now and return transcript
@@ -1437,7 +1437,7 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           if (autoPaste && pasteResult && !pasteResult.ok) {
             console.log('Paste failed, sending notification instead of breaking UX')
             new Notification({
-              title: 'Voice Hotkey: Paste Failed',
+              title: 'Astra: Paste Failed',
               body: 'Text copied to clipboard. (Check Accessibility permissions for auto-paste)'
             }).show()
           }
@@ -1492,19 +1492,19 @@ ipcMain.handle('send-audio-chunk', async (event, uint8Array) => {
     // Heuristic: WAV files start with 'RIFF'
     const isWav = buffer.length >= 4 && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46
     if (isWav) {
-      const filename = path.join(os.tmpdir(), `voicehotkey-chunk-${Date.now()}.wav`)
+      const filename = path.join(os.tmpdir(), `astra-chunk-${Date.now()}.wav`)
       await fs.promises.writeFile(filename, buffer)
       liveMockState[senderId].chunkWavs.push(filename)
       const MAX_WAVS = 8
       if (liveMockState[senderId].chunkWavs.length > MAX_WAVS) liveMockState[senderId].chunkWavs.splice(0, liveMockState[senderId].chunkWavs.length - MAX_WAVS)
     } else {
       // fallback: write webm and try converting to wav
-      const filename = path.join(os.tmpdir(), `voicehotkey-chunk-${Date.now()}.webm`)
+      const filename = path.join(os.tmpdir(), `astra-chunk-${Date.now()}.webm`)
       await fs.promises.writeFile(filename, buffer)
       try {
         const ffmpegCmd = await findFfmpeg()
         if (ffmpegCmd) {
-          const wavPath = path.join(os.tmpdir(), `voicehotkey-chunk-${Date.now()}.wav`)
+          const wavPath = path.join(os.tmpdir(), `astra-chunk-${Date.now()}.wav`)
           await new Promise((resolve, reject) => {
             const cmd = `${JSON.stringify(ffmpegCmd)} -y -i ${JSON.stringify(filename)} -ar 16000 -ac 1 ${JSON.stringify(wavPath)}`
             exec(cmd, (err, stdout, stderr) => {
@@ -1562,7 +1562,7 @@ async function runRollingTranscription (senderId, sender) {
     const wavs = state.chunkWavs.slice(-take)
     if (wavs.length === 0) return
 
-    const listFile = path.join(os.tmpdir(), `voicehotkey-concat-${Date.now()}.txt`)
+    const listFile = path.join(os.tmpdir(), `astra-concat-${Date.now()}.txt`)
     // Only include wavs that still exist (avoid race conditions)
     const existing = []
     for (const p of wavs) {
@@ -1578,7 +1578,7 @@ async function runRollingTranscription (senderId, sender) {
     const listContents = existing.map(p => `file '${String(p).replace(/'/g, "'\\\''")}'`).join('\n')
     await fs.promises.writeFile(listFile, listContents)
 
-    const combinedPath = path.join(os.tmpdir(), `voicehotkey-rolling-${Date.now()}.wav`)
+    const combinedPath = path.join(os.tmpdir(), `astra-rolling-${Date.now()}.wav`)
     // concat and resample to 16k mono
     await new Promise((resolve, reject) => {
       // Use ffmpeg with a concat list file. Wrap paths properly.
@@ -1624,7 +1624,7 @@ ipcMain.handle('transcribe', async (event, webmPath, options = {}) => {
     // ensure ffmpeg exists
     const ffmpegCmd = 'ffmpeg'
     // create wav path
-    const wavPath = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.wav`)
+    const wavPath = path.join(os.tmpdir(), `astra-${Date.now()}.wav`)
     // delegate to shared helper
     const tx = await transcribeWebm(webmPath, options)
     return tx
@@ -1651,7 +1651,7 @@ async function transcribeWebm (webmPath, options = {}) {
   try {
     // find ffmpeg executable (bundled, user-configured, or system)
     const ffmpegCmd = await findFfmpeg()
-    const wavPath = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.wav`)
+    const wavPath = path.join(os.tmpdir(), `astra-${Date.now()}.wav`)
     let finalWav = wavPath
     if (!ffmpegCmd) {
       return { ok: false, error: 'ffmpeg not found. Install ffmpeg (Homebrew: `brew install ffmpeg`) or bundle ffmpeg in the app.' }
@@ -1748,7 +1748,7 @@ async function transcribeWav (wavPath, options = {}) {
       const ffmpegCmd = await findFfmpeg()
       console.log('FFmpeg command:', ffmpegCmd)
       if (ffmpegCmd) {
-        const trimmed = path.join(os.tmpdir(), `voicehotkey-trimmed-${Date.now()}.wav`)
+        const trimmed = path.join(os.tmpdir(), `astra-trimmed-${Date.now()}.wav`)
         // Resample to 16kHz mono for Whisper.
         // Removed silenceremove filter as it was truncating the start of speech.
         await new Promise((resolve, reject) => {
