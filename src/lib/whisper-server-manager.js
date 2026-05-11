@@ -17,7 +17,7 @@ class WhisperServerManager {
 
     const bin = WHISPER_SERVER_PATH;
     if (!fs.existsSync(bin)) {
-      console.error(`whisper-server binary not found at ${bin}. Real-time streaming will be unavailable.`);
+      console.log(`[INFO] whisper-server binary not found at ${bin}. Real-time streaming will gracefully fallback to standard transcription.`);
       return;
     }
 
