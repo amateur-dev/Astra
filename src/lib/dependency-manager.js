@@ -90,7 +90,7 @@ async function checkDependencies() {
 
   // Check Models
   for (const [key, info] of Object.entries(MODELS)) {
-    if (fs.existsSync(path.join(MODELS_DIR, info.filename))) {
+    if (fs.existsSync(getModelPath(info.filename))) {
       status.models[info.filename] = true; // Use filename as key to match getAvailableModels
     } else {
       status.models[info.filename] = false;

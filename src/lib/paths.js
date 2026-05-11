@@ -28,6 +28,24 @@ function getBinaryPath(folderName, fileName) {
   return path.join(BIN_DIR, fileName);
 }
 
+function getModelPath(modelName) {
+  const commonPaths = [
+    MODELS_DIR,
+    path.join(process.env.HOME || '.', 'Library', 'Application Support', 'voice-hotkey-electron', 'models'),
+    path.join(process.env.HOME || '.', '.voice-hotkey', 'models'),
+    path.join(process.env.HOME || '.', '.cache', 'whisper'),
+    path.join(process.env.HOME || '.', 'Library', 'Caches', 'whisper')
+  ];
+
+  for (const dir of commonPaths) {
+    const fullPath = path.join(dir, modelName);
+    if (fs.existsSync(fullPath)) return fullPath;
+  }
+  
+  // If not found anywhere, default to the primary MODELS_DIR so it can be downloaded there
+  return path.join(MODELS_DIR, modelName);
+}
+
 module.exports = {
   userDataPath,
   BIN_DIR,
@@ -37,6 +55,13 @@ module.exports = {
   WHISPER_SERVER_PATH: getBinaryPath('whisper', 'whisper-server'),
   PIPER_DIR: path.join(BIN_DIR, 'piper'),
   PIPER_PATH: path.join(BIN_DIR, 'piper', 'piper'),
-  VOICE_MODEL_PATH: path.join(MODELS_DIR, 'en_US-lessac-high.onnx'),
-  getModelPath: (modelName) => path.join(MODELS_DIR, modelName)
+  VOICE_MODEL_PATH: getModelPath('en_US-lessac-high.onnx'),
+  getModelPath,
+  COMMON_MODEL_PATHS: [
+    MODELS_DIR,
+    path.join(process.env.HOME || '.', 'Library', 'Application Support', 'voice-hotkey-electron', 'models'),
+    path.join(process.env.HOME || '.', '.voice-hotkey', 'models'),
+    path.join(process.env.HOME || '.', '.cache', 'whisper'),
+    path.join(process.env.HOME || '.', 'Library', 'Caches', 'whisper')
+  ]
 };
