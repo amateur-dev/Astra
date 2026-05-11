@@ -1,5 +1,9 @@
 const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, clipboard, systemPreferences, desktopCapturer, Notification, screen } = require('electron')
 const path = require('path')
+
+// Preserve legacy user data path so users don't lose downloaded models
+app.setPath('userData', path.join(app.getPath('appData'), 'voice-hotkey-electron'))
+
 const fs = require('fs')
 const os = require('os')
 const { exec } = require('child_process')
@@ -146,8 +150,12 @@ const liveMockState = {}
 
 function createWindow () {
   mainWindow = new BrowserWindow({
-    width: 400,
-    height: 300,
+    width: 800,
+    height: 600,
+    transparent: true,
+    vibrancy: 'hudWindow',
+    titleBarStyle: 'hiddenInset',
+    visualEffectState: 'active',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js')
     }
@@ -900,7 +908,7 @@ ipcMain.handle('download-dependency', async (event, type, param) => {
 
 ipcMain.handle('finish-setup', () => {
   if (mainWindow) {
-    mainWindow.setSize(400, 300)
+    mainWindow.setSize(800, 600)
     mainWindow.center()
     mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
   }
