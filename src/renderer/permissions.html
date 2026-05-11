@@ -139,15 +139,25 @@
         </svg>
       </div>
       <h1>System Permissions</h1>
-      <p class="subtitle">Astra needs a few permissions to seamlessly integrate with your Mac. You only need to do this once.</p>
+      <p class="subtitle">Astra needs permissions to work. When System Settings opens, find Astra in the list and enable it.</p>
+      
+      <div class="help-box" style="background: rgba(255,200,0,0.15); border: 1px solid rgba(255,200,0,0.3); border-radius: 12px; padding: 16px; margin-bottom: 24px; font-size: 13px;">
+        <strong style="color: var(--text-primary);">🔧 If you don't see Astra in the list:</strong>
+        <ul style="margin: 8px 0 0 20px; padding: 0; color: var(--text-secondary);">
+          <li>Close System Settings completely</li>
+          <li>Click the button again to reopen</li>
+          <li>Astra should now appear - toggle it ON</li>
+          <li>Close & reopen Astra app</li>
+        </ul>
+      </div>
 
       <div class="perm-item" id="perm-mic">
         <div class="perm-icon">🎙️</div>
         <div class="perm-content">
           <h3>Microphone (Required)</h3>
-          <p>Needed to hear your voice and transcribe it locally.</p>
+          <p>Needed to hear your voice and transcribe it locally. <strong>Click to enable → allow when prompted.</strong></p>
           <div class="perm-actions" id="action-mic">
-            <button class="btn btn-primary" onclick="requestMic()">Grant Access</button>
+            <button class="btn btn-primary" onclick="requestMic()">Enable Microphone</button>
           </div>
         </div>
       </div>
@@ -156,10 +166,9 @@
         <div class="perm-icon">⌨️</div>
         <div class="perm-content">
           <h3>Accessibility (Required)</h3>
-          <p>Allows Astra to automatically paste the transcribed text directly into the app you're using.</p>
+          <p>Allows Astra to automatically paste transcribed text. <strong>Click the button → enable Astra in the list → restart app.</strong></p>
           <div class="perm-actions" id="action-acc">
-            <button class="btn btn-primary" onclick="requestAcc()">Open Settings</button>
-            <button class="btn" onclick="openSystem('accessibility')">Help</button>
+            <button class="btn btn-primary" onclick="requestAcc()">Open Accessibility Settings</button>
           </div>
         </div>
       </div>
@@ -213,23 +222,34 @@
     }
 
     async function requestMic() {
+      // First, open System Settings → Microphone - this is the PERPLEXITY way
+      await window.electronAPI.openSystemSettings('microphone');
+      
+      // Also try both permission APIs - they may trigger the prompt
       try {
-        // Use the native Web API to trigger the macOS permission prompt.
-        // This is significantly more reliable than Electron's systemPreferences API.
+        await window.electronAPI.requestMicPermission();
+      } catch (e) {}
+      
+      try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        // Release the mic immediately if granted
         stream.getTracks().forEach(track => track.stop());
-      } catch (err) {
-        console.warn('Microphone access was denied or failed:', err);
-        // If it fails (user denied it, or macOS blocked it), fallback to opening settings
-        openSystem('microphone');
-      }
-      checkPermissions();
+      } catch (err) {}
+      
+      // Poll for permission to get granted
+      setTimeout(checkPermissions, 2000);
     }
 
     async function requestAcc() {
-      await window.electronAPI.requestAccessibilityPermission();
-      checkPermissions();
+      // Open System Settings → Accessibility - the exact pane where app should appear
+      await window.electronAPI.openSystemSettings('accessibility');
+      
+      // Also trigger the API which tells macOS this app needs access
+      try {
+        await window.electronAPI.requestAccessibilityPermission();
+      } catch (e) {}
+      
+      // Poll for permission
+      setTimeout(checkPermissions, 2000);
     }
 
     function openSystem(pane) {

@@ -32,10 +32,17 @@
     "node-fetch": "^3.3.1"
   },
   "build": {
-    "appId": "com.example.astra",
+    "appId": "com.example.voicehotkey",
+    "productName": "Astra",
+    "afterSign": "scripts/afterSign.js",
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
       "target": [
         {
           "target": "dmg",
@@ -46,8 +53,9 @@
         }
       ],
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "The app requires microphone access to record voice for local transcription.",
-        "NSAppleEventsUsageDescription": "Needed to paste transcriptions into the frontmost app via AppleScript when auto-paste is enabled."
+        "NSMicrophoneUsageDescription": "Astra needs microphone access to record your voice and transcribe it locally on your Mac.",
+        "NSAppleEventsUsageDescription": "Astra needs this to automatically paste transcribed text into the app you are using.",
+        "NSScreenCaptureUsageDescription": "Astra can optionally read your screen to provide context-aware AI responses."
       }
     },
     "extraResources": [
