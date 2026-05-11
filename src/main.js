@@ -533,7 +533,11 @@ async function captureSelectedText() {
   return new Promise((resolve) => {
     exec(`osascript -e '${script}'`, (err, stdout, stderr) => {
       if (err) {
-        console.error('Failed to copy text', err)
+        if (err.message && err.message.includes('not allowed to send keystrokes')) {
+          console.warn('[INFO] Accessibility permission missing: cannot auto-copy selected text via Cmd+C.');
+        } else {
+          console.error('Failed to copy text (osascript error):', err.message || err);
+        }
         return resolve(null);
       }
       
@@ -626,7 +630,7 @@ function toggleRecording(visionMode = false) {
     }
 
     const screenEnabled = store.get('screen_context_enabled') === true;
-    const hasScreenContext = screenEnabled || copilot;
+    const hasScreenContext = screenEnabled || isCopilotMode;
     overlayWindows.forEach(win => {
       if (!win.isDestroyed()) {
         win.showInactive();
@@ -1248,8 +1252,12 @@ ipcMain.handle('paste-into-front', async (event, text) => {
         if (err) {
           // provide an actionable hint for the user
           const errMsg = (stderr || err.message || String(err)).toString()
-          console.error('osascript paste failed', errMsg)
-          resolve({ ok: false, error: 'Paste failed: ' + errMsg + '. If this is macOS, please grant Accessibility permission to Terminal or the app hosting this process (System Settings → Privacy & Security → Accessibility).' })
+          if (errMsg.includes('not allowed to send keystrokes')) {
+            console.warn('[INFO] Accessibility permission missing: cannot auto-paste via Cmd+V.');
+          } else {
+            console.error('osascript paste failed:', errMsg)
+          }
+          resolve({ ok: false, error: 'Paste failed. Please grant Accessibility permission in System Settings.' })
           return
         }
         resolve({ ok: true })
@@ -1423,7 +1431,13 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
               const as = 'tell application "System Events" to keystroke "v" using {command down}'
               pasteResult = await new Promise((resolve) => {
                 exec(`osascript -e ${JSON.stringify(as)}`, (err, stdout, stderr) => {
-                  if (err) return resolve({ ok: false, error: (stderr || err.message || String(err)).toString() })
+                  if (err) {
+                    const errMsg = (stderr || err.message || String(err)).toString();
+                    if (errMsg.includes('not allowed to send keystrokes')) {
+                      console.warn('[INFO] Accessibility permission missing: cannot auto-paste via Cmd+V.');
+                    }
+                    return resolve({ ok: false, error: errMsg })
+                  }
                   resolve({ ok: true })
                 })
               })
