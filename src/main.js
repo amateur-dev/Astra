@@ -1,9 +1,5 @@
 const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, clipboard, systemPreferences, desktopCapturer, Notification, screen } = require('electron')
 const path = require('path')
-
-// Preserve legacy user data path so users don't lose downloaded models
-app.setPath('userData', path.join(app.getPath('appData'), 'voice-hotkey-electron'))
-
 const fs = require('fs')
 const os = require('os')
 const { exec } = require('child_process')
@@ -18,7 +14,7 @@ const store = new Store({
 })
 const logger = require('./lib/logger')
 const dependencyManager = require('./lib/dependency-manager')
-const { BIN_DIR, MODELS_DIR, WHISPER_PATH, PIPER_PATH, VOICE_MODEL_PATH } = require('./lib/paths')
+const { BIN_DIR, MODELS_DIR, WHISPER_PATH, PIPER_PATH, VOICE_MODEL_PATH, getModelPath } = require('./lib/paths')
 const { shell } = require('electron')
 const ttsUtils = require('./lib/tts-utils');
 
@@ -152,6 +148,8 @@ function createWindow () {
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
+    minWidth: 700,
+    minHeight: 500,
     transparent: true,
     vibrancy: 'hudWindow',
     titleBarStyle: 'hiddenInset',
@@ -166,6 +164,8 @@ function createWindow () {
     // Check if we have FFmpeg, Whisper, and at least one model
     const hasModel = Object.values(status.models).some(v => v)
     if (status.ffmpeg && status.whisper && hasModel) {
+      mainWindow.setSize(800, 600)
+      mainWindow.center()
       mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
     } else {
       // Resize for setup wizard
@@ -765,7 +765,7 @@ app.whenReady().then(async () => {
 
 // Start Whisper Server for real-time streaming
   const modelName = store.get('model') || 'ggml-small.en.bin'
-  const modelPath = path.join(MODELS_DIR, modelName)
+  const modelPath = getModelPath(modelName)
   whisperServerManager.start(modelPath).catch(err => {
     console.error('Failed to start Whisper Server:', err)
   })
@@ -921,7 +921,7 @@ ipcMain.handle('get-available-models', async () => {
     
     // Use the defined MODELS from dependency-manager to return rich info
     for (const [key, info] of Object.entries(dependencyManager.MODELS)) {
-      const isInstalled = fs.existsSync(path.join(MODELS_DIR, info.filename))
+      const isInstalled = fs.existsSync(getModelPath(info.filename))
       modelsList.push({
         key: key, // e.g. 'tiny.en'
         filename: info.filename,
@@ -1127,7 +1127,7 @@ ipcMain.handle('test-transcribe', async (event) => {
     
     if (!tpl) {
        const modelName = store.get('model') || 'ggml-small.en.bin'
-       const modelPath = path.join(MODELS_DIR, modelName)
+       const modelPath = getModelPath(modelName)
        tpl = `"${WHISPER_PATH}" -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -nt`
     }
 
@@ -1683,7 +1683,7 @@ async function transcribeWebm (webmPath, options = {}) {
     
     if (!tpl) {
        const modelName = store.get('model') || 'ggml-small.en.bin'
-       const modelPath = path.join(MODELS_DIR, modelName)
+       const modelPath = getModelPath(modelName)
        // Use absolute path for model to be safe
        tpl = `"${WHISPER_PATH}" -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -nt`
     }
@@ -1742,7 +1742,7 @@ async function transcribeWav (wavPath, options = {}) {
     
     if (!tpl) {
        const modelName = store.get('model') || 'ggml-small.en.bin'
-       const modelPath = path.join(MODELS_DIR, modelName)
+       const modelPath = getModelPath(modelName)
        // Use absolute path for model to be safe
        tpl = `"${WHISPER_PATH}" -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -nt`
     }
