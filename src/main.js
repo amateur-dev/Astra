@@ -251,11 +251,13 @@ function createRecordingWindow () {
   }
   
   recordingWindow = new BrowserWindow({
-    width: 320,
-    height: 160,
+    width: 440,
+    height: 80,
     type: 'panel', // Helps with floating behavior
     frame: false,
     transparent: true,
+    vibrancy: 'hudWindow',
+    visualEffectState: 'active',
     alwaysOnTop: true,
     resizable: false,
     skipTaskbar: true,
