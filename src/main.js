@@ -144,6 +144,38 @@ let isCancelled = false
 // Live mock state per renderer sender (used for incremental patch simulation)
 const liveMockState = {}
 
+function checkAndRouteWindow() {
+  if (!mainWindow) return;
+
+  if (process.platform === 'darwin') {
+    const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
+    const acc = systemPreferences.isTrustedAccessibilityClient(false);
+    
+    if (!mic || !acc) {
+      mainWindow.setSize(700, 600);
+      mainWindow.center();
+      mainWindow.loadFile(path.join(__dirname, 'renderer', 'permissions.html'));
+      return;
+    }
+  }
+
+  // Check dependencies and decide which page to load
+  dependencyManager.checkDependencies().then(status => {
+    // Check if we have FFmpeg, Whisper, and at least one model
+    const hasModel = Object.values(status.models).some(v => v);
+    if (status.ffmpeg && status.whisper && hasModel) {
+      mainWindow.setSize(800, 600);
+      mainWindow.center();
+      mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+    } else {
+      // Resize for setup wizard
+      mainWindow.setSize(700, 600);
+      mainWindow.center();
+      mainWindow.loadFile(path.join(__dirname, 'renderer', 'setup.html'));
+    }
+  });
+}
+
 function createWindow () {
   mainWindow = new BrowserWindow({
     width: 800,
@@ -159,21 +191,7 @@ function createWindow () {
     }
   })
   
-  // Check dependencies and decide which page to load
-  dependencyManager.checkDependencies().then(status => {
-    // Check if we have FFmpeg, Whisper, and at least one model
-    const hasModel = Object.values(status.models).some(v => v)
-    if (status.ffmpeg && status.whisper && hasModel) {
-      mainWindow.setSize(800, 600)
-      mainWindow.center()
-      mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
-    } else {
-      // Resize for setup wizard
-      mainWindow.setSize(700, 600)
-      mainWindow.center()
-      mainWindow.loadFile(path.join(__dirname, 'renderer', 'setup.html'))
-    }
-  })
+  checkAndRouteWindow();
 
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -715,29 +733,6 @@ function registerHotkey (hotkey) {
 }
 
 app.whenReady().then(async () => {
-  // Check Accessibility Permissions (MacOS)
-  if (process.platform === 'darwin') {
-      const isTrusted = systemPreferences.isTrustedAccessibilityClient(true);
-      if (!isTrusted) {
-          console.warn('WARNING: Accessibility permissions missing. Prompting user...');
-      } else {
-          console.log('Accessibility permissions: GRANTED');
-      }
-
-      // Explicitly request microphone access to avoid silent failures
-      try {
-        const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-        console.log(`Initial Microphone Status: ${micStatus}`);
-        if (micStatus !== 'granted') {
-          console.log('Prompting for microphone access...');
-          const granted = await systemPreferences.askForMediaAccess('microphone');
-          console.log(`Microphone access granted: ${granted}`);
-        }
-      } catch (err) {
-        console.error('Failed to request microphone access:', err);
-      }
-  }
-
   // Hide from dock to prevent space switching when app is active
   if (process.platform === 'darwin') {
     app.dock.hide()
@@ -909,6 +904,41 @@ ipcMain.handle('download-dependency', async (event, type, param) => {
   } catch (e) {
     console.error('Download failed:', e)
     throw e
+  }
+})
+
+ipcMain.handle('permissions-done', () => {
+  checkAndRouteWindow();
+})
+
+ipcMain.handle('get-permissions-status', () => {
+  if (process.platform !== 'darwin') return { mic: true, accessibility: true, screen: true };
+  return {
+    mic: systemPreferences.getMediaAccessStatus('microphone') === 'granted',
+    accessibility: systemPreferences.isTrustedAccessibilityClient(false),
+    screen: systemPreferences.getMediaAccessStatus('screen') === 'granted'
+  };
+})
+
+ipcMain.handle('request-mic-permission', async () => {
+  if (process.platform !== 'darwin') return true;
+  return await systemPreferences.askForMediaAccess('microphone');
+})
+
+ipcMain.handle('request-accessibility-permission', () => {
+  if (process.platform !== 'darwin') return true;
+  return systemPreferences.isTrustedAccessibilityClient(true);
+})
+
+ipcMain.handle('open-system-settings', (event, pane) => {
+  const panes = {
+    'microphone': 'Privacy_Microphone',
+    'accessibility': 'Privacy_Accessibility',
+    'screen': 'Privacy_ScreenCapture'
+  };
+  const target = panes[pane];
+  if (target) {
+    exec(`open "x-apple.systempreferences:com.apple.preference.security?${target}"`);
   }
 })
 

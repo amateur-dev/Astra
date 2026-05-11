@@ -58,6 +58,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onDownloadProgress: (cb) => ipcRenderer.on('download-progress', (event, data) => cb(data)),
   finishSetup: () => ipcRenderer.invoke('finish-setup'),
   
+  // Permissions
+  getPermissionsStatus: () => ipcRenderer.invoke('get-permissions-status'),
+  requestMicPermission: () => ipcRenderer.invoke('request-mic-permission'),
+  requestAccessibilityPermission: () => ipcRenderer.invoke('request-accessibility-permission'),
+  openSystemSettings: (pane) => ipcRenderer.invoke('open-system-settings', pane),
+  permissionsDone: () => ipcRenderer.invoke('permissions-done'),
+  
   // Model Management
   getAvailableModels: () => ipcRenderer.invoke('get-available-models'),
   setModel: (model) => ipcRenderer.invoke('set-model', model),

@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Astra Permissions</title>
+  <link rel="stylesheet" href="./ui/tokens.css" />
+  <style>
+    body {
+      background: transparent;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      color: var(--text-primary);
+      overflow: hidden;
+      user-select: none;
+    }
+    .modal-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-color);
+      -webkit-app-region: drag;
+    }
+    .permissions-card {
+      width: 100%;
+      max-width: 500px;
+      padding: 40px;
+      -webkit-app-region: no-drag;
+      animation: fadeIn 0.4s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .header-icon {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      margin-bottom: 24px;
+      box-shadow: 0 8px 24px rgba(117, 239, 255, 0.3);
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+    p.subtitle {
+      color: var(--text-secondary);
+      font-size: 15px;
+      line-height: 1.5;
+      margin-bottom: 32px;
+    }
+    .perm-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 20px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      margin-bottom: 16px;
+      transition: all 0.2s;
+    }
+    .perm-item:hover {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+    .perm-icon {
+      font-size: 24px;
+      margin-top: 2px;
+    }
+    .perm-content {
+      flex: 1;
+    }
+    .perm-content h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .perm-content p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      line-height: 1.4;
+    }
+    .perm-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .status-granted {
+      color: var(--success-color);
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .footer {
+      margin-top: 40px;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .btn-continue {
+      padding: 12px 32px;
+      font-size: 15px;
+      border-radius: 99px;
+    }
+  </style>
+</head>
+<body>
+  <div class="modal-overlay">
+    <div class="permissions-card">
+      <div class="header-icon">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </div>
+      <h1>System Permissions</h1>
+      <p class="subtitle">Astra needs a few permissions to seamlessly integrate with your Mac. You only need to do this once.</p>
+
+      <div class="perm-item" id="perm-mic">
+        <div class="perm-icon">🎙️</div>
+        <div class="perm-content">
+          <h3>Microphone (Required)</h3>
+          <p>Needed to hear your voice and transcribe it locally.</p>
+          <div class="perm-actions" id="action-mic">
+            <button class="btn btn-primary" onclick="requestMic()">Grant Access</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="perm-item" id="perm-acc">
+        <div class="perm-icon">⌨️</div>
+        <div class="perm-content">
+          <h3>Accessibility (Required)</h3>
+          <p>Allows Astra to automatically paste the transcribed text directly into the app you're using.</p>
+          <div class="perm-actions" id="action-acc">
+            <button class="btn btn-primary" onclick="requestAcc()">Open Settings</button>
+            <button class="btn" onclick="openSystem('accessibility')">Help</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="perm-item" id="perm-screen">
+        <div class="perm-icon">👁️</div>
+        <div class="perm-content">
+          <h3>Screen Recording (Optional)</h3>
+          <p>Allows Astra to see what's on your screen so the AI can provide context-aware responses.</p>
+          <div class="perm-actions" id="action-screen">
+            <button class="btn btn-primary" onclick="openSystem('screen')">Open Settings</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <button id="btnContinue" class="btn btn-primary btn-continue" disabled onclick="continueSetup()">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const btnContinue = document.getElementById('btnContinue');
+    
+    async function checkPermissions() {
+      const status = await window.electronAPI.getPermissionsStatus();
+      
+      updateItem('mic', status.mic);
+      updateItem('acc', status.accessibility);
+      updateItem('screen', status.screen);
+
+      if (status.mic && status.accessibility) {
+        btnContinue.disabled = false;
+        btnContinue.style.background = 'var(--success-color)';
+        btnContinue.textContent = 'Setup Complete →';
+      } else {
+        btnContinue.disabled = true;
+        btnContinue.style.background = 'var(--accent-color)';
+        btnContinue.textContent = 'Continue';
+      }
+    }
+
+    function updateItem(id, isGranted) {
+      const actionDiv = document.getElementById(`action-${id}`);
+      if (isGranted) {
+        actionDiv.innerHTML = `<div class="status-granted">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          Granted
+        </div>`;
+      }
+    }
+
+    async function requestMic() {
+      await window.electronAPI.requestMicPermission();
+      checkPermissions();
+    }
+
+    async function requestAcc() {
+      await window.electronAPI.requestAccessibilityPermission();
+      checkPermissions();
+    }
+
+    function openSystem(pane) {
+      window.electronAPI.openSystemSettings(pane);
+    }
+
+    function continueSetup() {
+      window.electronAPI.permissionsDone();
+    }
+
+    // Poll for changes in case they toggle it in System Settings
+    setInterval(checkPermissions, 1000);
+    checkPermissions();
+  </script>
+</body>
+</html>
