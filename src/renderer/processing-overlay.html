@@ -51,7 +51,7 @@
       height: 100%;
       border-radius: 50%;
       border: 6px solid rgba(255, 255, 255, 0.15);
-      border-top-color: #667eea;
+      border-top-color: oklch(75% 0.15 220);
       animation: spin 1s linear infinite;
     }
 
@@ -81,7 +81,7 @@
 
     .progress-circle-fill {
       fill: none;
-      stroke: #667eea;
+      stroke: oklch(75% 0.15 220);
       stroke-width: 8;
       stroke-linecap: round;
       stroke-dasharray: 339.292; /* 2 * PI * 54 */
@@ -134,7 +134,7 @@
 
     .progress-bar-fill {
       height: 100%;
-      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(90deg, oklch(75% 0.15 220) 0%, oklch(65% 0.25 300) 100%);
       width: 0%;
       transition: width 0.3s ease;
       border-radius: 3px;
