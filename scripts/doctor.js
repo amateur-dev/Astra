@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 async function runDoctor() {
-  console.log('\n🏥 Voice Hotkey Doctor: Environment Diagnostics');
+  console.log('\n🏥 Astra Doctor: Environment Diagnostics');
   console.log('==============================================\n');
   
   let allGood = true;
