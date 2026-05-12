@@ -535,6 +535,39 @@ async function captureScreen() {
 }
 
 async function captureSelectedText() {
+  const accessibilityScript = `
+    tell application "System Events"
+      set frontApp to first application process whose frontmost is true
+      set frontAppName to name of frontApp
+      try
+        set focusedElement to value of attribute "AXFocusedUIElement" of frontApp
+        set selectedText to value of attribute "AXSelectedText" of focusedElement
+        if selectedText is not missing value and selectedText is not "" then
+          return frontAppName & "\n" & selectedText
+        end if
+      end try
+      return frontAppName & "\n"
+    end tell
+  `;
+
+  try {
+    const directText = await new Promise((resolve) => {
+      exec(`osascript -e ${JSON.stringify(accessibilityScript)}`, (err, stdout) => {
+        if (err) return resolve(null);
+        const output = (stdout || '').toString();
+        const newlineIndex = output.indexOf('\n');
+        const text = newlineIndex >= 0 ? output.slice(newlineIndex + 1).trim() : '';
+        resolve(text || null);
+      });
+    });
+
+    if (directText) {
+      return directText;
+    }
+  } catch (err) {
+    console.warn('[INFO] Direct selected-text capture failed, falling back to Cmd+C:', err.message || err);
+  }
+
   const script = `
     tell application "System Events"
       set frontApp to first application process whose frontmost is true
@@ -549,7 +582,7 @@ async function captureSelectedText() {
   clipboard.clear();
   
   return new Promise((resolve) => {
-    exec(`osascript -e '${script}'`, (err, stdout, stderr) => {
+    exec(`osascript -e ${JSON.stringify(script)}`, (err, stdout, stderr) => {
       if (err) {
         if (err.message && err.message.includes('not allowed to send keystrokes')) {
           console.warn('[INFO] Accessibility permission missing: cannot auto-copy selected text via Cmd+C.');
@@ -566,6 +599,11 @@ async function captureSelectedText() {
         
         if (text) {
           clearInterval(checkClipboard);
+          if (/^https?:\/\/\S+$/i.test(text.trim())) {
+            console.warn('[INFO] Clipboard copy returned a URL, not selected text. Ignoring as Copilot context.');
+            resolve(null);
+            return;
+          }
           resolve(text);
         } else if (attempts > 10) {
            clearInterval(checkClipboard);
@@ -1996,7 +2034,7 @@ ${text}`;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-        const response = await fetch(url, {
+        const response = await localFetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -2012,6 +2050,21 @@ ${text}`;
 
         let polishedText = '';
         let streamSeq = 0;
+        const handleStreamLine = (line) => {
+          if (!line.trim()) return;
+          const parsed = JSON.parse(line);
+          if (parsed.response) {
+            polishedText += parsed.response;
+            streamSeq++;
+            // Send partial text to both potential active windows
+            if (transcriptWindow && transcriptWindow.webContents) {
+              transcriptWindow.webContents.send('transcript-data', polishedText);
+            }
+            if (mainWindow && mainWindow.webContents) {
+              mainWindow.webContents.send('live-patch', { seq: streamSeq, text: polishedText });
+            }
+          }
+        };
         
         // Ensure processing window is visible and showing transcript UI
         if (processingWindow && processingWindow.webContents) {
@@ -2022,35 +2075,61 @@ ${text}`;
             });
         }
         
-        // Process the streaming response
+        // Process Ollama's newline-delimited JSON streaming response. Depending on
+        // the fetch implementation this may be a Node stream or a Web ReadableStream.
         if (response.body && typeof response.body.on === 'function') {
            // Node.js stream API (from node-fetch)
            await new Promise((resolve, reject) => {
+               let buffered = '';
                response.body.on('data', (chunk) => {
-                   const lines = chunk.toString().split('\n');
+                   buffered += chunk.toString();
+                   const lines = buffered.split('\n');
+                   buffered = lines.pop() || '';
                    for (const line of lines) {
-                       if (!line.trim()) continue;
                        try {
-                           const parsed = JSON.parse(line);
-                           if (parsed.response) {
-                               polishedText += parsed.response;
-                               streamSeq++;
-                               // Send partial text to both potential active windows
-                               if (transcriptWindow && transcriptWindow.webContents) {
-                                  transcriptWindow.webContents.send('transcript-data', polishedText);
-                               }
-                               if (mainWindow && mainWindow.webContents) {
-                                  mainWindow.webContents.send('live-patch', { seq: streamSeq, text: polishedText });
-                               }
-                           }
+                           handleStreamLine(line);
                        } catch (e) {
                            console.warn('Error parsing JSON from stream:', e);
                        }
                    }
                });
-               response.body.on('end', () => resolve());
+               response.body.on('end', () => {
+                   if (buffered.trim()) {
+                       try {
+                           handleStreamLine(buffered);
+                       } catch (e) {
+                           console.warn('Error parsing JSON from stream:', e);
+                       }
+                   }
+                   resolve();
+               });
                response.body.on('error', (err) => reject(err));
            });
+        } else if (response.body && typeof response.body.getReader === 'function') {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffered = '';
+            while (true) {
+                const { value, done } = await reader.read();
+                buffered += decoder.decode(value || new Uint8Array(), { stream: !done });
+                const lines = buffered.split('\n');
+                buffered = lines.pop() || '';
+                for (const line of lines) {
+                    try {
+                        handleStreamLine(line);
+                    } catch (e) {
+                        console.warn('Error parsing JSON from stream:', e);
+                    }
+                }
+                if (done) break;
+            }
+            if (buffered.trim()) {
+                try {
+                    handleStreamLine(buffered);
+                } catch (e) {
+                    console.warn('Error parsing JSON from stream:', e);
+                }
+            }
         } else {
             // Fallback for environments where body isn't an EventEmitter
             const data = await response.json();

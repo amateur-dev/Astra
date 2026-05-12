@@ -1,0 +1,6 @@
+SHA256 checksums for release artifacts.
+
+Version 1.0.5
+
+a7a624f0440c51f35f914d8b8c9f484f8d3e9e2c17d9c57a4b831bae81edab62  Astra-1.0.5-arm64.dmg
+6025721fb5ad0ba96fe6418f9804a439aebc7efdb0fb1f8e44bd43b3ddbc669e  Astra-1.0.5.dmg
