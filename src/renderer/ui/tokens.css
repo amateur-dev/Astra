@@ -263,7 +263,6 @@ body {
   border: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 .modal-header {
@@ -283,6 +282,28 @@ body {
   padding: 20px;
   overflow-y: auto;
   flex: 1;
+}
+
+/* Scrollbar styles for modal */
+.modal-body::-webkit-scrollbar,
+.modal-body *::-webkit-scrollbar {
+  width: 8px;
+}
+
+.modal-body::-webkit-scrollbar-track,
+.modal-body *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-body::-webkit-scrollbar-thumb,
+.modal-body *::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover,
+.modal-body *::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
 }
 
 .setting-group {
@@ -402,7 +423,6 @@ input:checked + .slider:before {
   background: var(--bg-secondary);
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
-  overflow: hidden;
   max-height: 200px;
   overflow-y: auto;
 }
