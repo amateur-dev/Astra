@@ -1,6 +1,6 @@
-# Contributing to Voice Hotkey
+# Contributing to ASTRA
 
-Thank you for your interest in contributing to Voice Hotkey! This document provides guidelines and instructions for setting up your development environment.
+Thank you for your interest in contributing to ASTRA! This document provides guidelines and instructions for setting up your development environment.
 
 ## Development Setup
 

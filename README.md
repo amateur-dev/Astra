@@ -1,4 +1,4 @@
-# Astra 🎤✨
+# ASTRA 🎤✨
 
 **Your personal voice assistant that types for you — no internet required.**
 
@@ -11,9 +11,9 @@ Press a hotkey, speak, and watch your words appear in any app. It's like magic, 
 > **[⬇️ Download for macOS](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases/latest)**
 
 <div align="center">
-  <img src="docs/assets/astra-main-ui.png" width="400" alt="Astra Main UI" />
+  <img src="docs/assets/astra-main-ui.png" width="400" alt="ASTRA Main UI" />
   &nbsp;&nbsp;&nbsp;
-  <img src="docs/assets/astra-settings-ui.png" width="400" alt="Astra Settings UI" />
+  <img src="docs/assets/astra-settings-ui.png" width="400" alt="ASTRA Settings UI" />
 </div>
 
 ---
@@ -36,14 +36,14 @@ Press a hotkey, speak, and watch your words appear in any app. It's like magic, 
 ### 1️⃣ Download & Install
 
 1. Go to **[Releases](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases)** and grab:
-   - **Apple Silicon Mac** (M1/M2/M3/M4): `Astra-x.x.x-arm64.dmg`
-   - **Intel Mac**: `Astra-x.x.x.dmg`
+   - **Apple Silicon Mac** (M1/M2/M3/M4): `ASTRA-x.x.x-arm64.dmg`
+   - **Intel Mac**: `ASTRA-x.x.x.dmg`
 2. Drag to **Applications** folder
 3. **First time? macOS may block the app** because this project is open source and not Apple-notarized. To open it:
-   - Try right-clicking **Astra** in Applications and choose **Open**
+   - Try right-clicking **ASTRA** in Applications and choose **Open**
    - If macOS still blocks it, go to **System Settings → Privacy & Security**
-   - Scroll to **Security** and click **Open Anyway** for Astra
-   - Launch Astra again
+   - Scroll to **Security** and click **Open Anyway** for ASTRA
+   - Launch ASTRA again
 
 ### 2️⃣ First Launch
 
@@ -55,12 +55,12 @@ On first run, the app will:
 
 ### About macOS Warnings
 
-Astra's downloadable builds are currently ad-hoc signed, not Apple-notarized. This means macOS may show a warning on first launch. The source code is public, and technical users can build it themselves if they prefer.
+ASTRA's downloadable builds are currently ad-hoc signed, not Apple-notarized. This means macOS may show a warning on first launch. The source code is public, and technical users can build it themselves if they prefer.
 
 To verify a downloaded DMG, compare its SHA256 checksum with the checksums published in `RELEASE_CHECKSUMS.txt`:
 
 ```bash
-shasum -a 256 Astra-2.0.0-arm64.dmg
+shasum -a 256 ASTRA-2.0.0-arm64.dmg
 ```
 
 ### 3️⃣ Start Using
@@ -144,7 +144,7 @@ For Vision Mode (`Cmd+Shift+O`):
 - Run `ollama list` to see available models
 
 ### Hotkeys not working?
-- Go to **System Settings → Privacy & Security → Accessibility** and enable Astra
+- Go to **System Settings → Privacy & Security → Accessibility** and enable ASTRA
 
 ### Still stuck?
 - **[Open an issue](https://github.com/amateur-dev/local-hotkey-voice-mac-app/issues)** — we'll help!

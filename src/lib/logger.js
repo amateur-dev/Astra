@@ -5,10 +5,10 @@ const { app } = require('electron');
 let logFilePath = null;
 
 function init() {
-  // On macOS: ~/Library/Logs/Astra/app.log
+  // On macOS: ~/Library/Logs/ASTRA/app.log
   // We use app.getPath('logs') which usually points to ~/Library/Logs/<AppName>
   // We'll add a subdirectory just to be safe and organized
-  const logsDir = path.join(app.getPath('logs'), 'Astra');
+  const logsDir = path.join(app.getPath('logs'), 'ASTRA');
   if (!fs.existsSync(logsDir)) {
     fs.mkdirSync(logsDir, { recursive: true });
   }

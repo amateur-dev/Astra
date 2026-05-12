@@ -6,16 +6,19 @@ try {
   userDataPath = app.getPath('userData');
 } catch (e) {
   // Fallback for testing or non-electron env
-  userDataPath = path.join(process.env.HOME || '.', '.voice-hotkey');
+  userDataPath = path.join(process.env.HOME || '.', '.astra');
 }
 
 const BIN_DIR = path.join(userDataPath, 'bin');
 const MODELS_DIR = path.join(userDataPath, 'models');
 const fs = require('fs');
 
-const LEGACY_USER_DATA_PATH = path.join(process.env.HOME || '.', 'Library', 'Application Support', 'voice-hotkey-electron');
-const LEGACY_BIN_DIR = path.join(LEGACY_USER_DATA_PATH, 'bin');
-const LEGACY_MODELS_DIR = path.join(LEGACY_USER_DATA_PATH, 'models');
+const LEGACY_USER_DATA_PATHS = [
+  path.join(process.env.HOME || '.', 'Library', 'Application Support', 'astra-mac-app'),
+  path.join(process.env.HOME || '.', 'Library', 'Application Support', 'voice-hotkey-electron')
+];
+const LEGACY_BIN_DIRS = LEGACY_USER_DATA_PATHS.map(dir => path.join(dir, 'bin'));
+const LEGACY_MODELS_DIRS = LEGACY_USER_DATA_PATHS.map(dir => path.join(dir, 'models'));
 
 function getBinaryPath(folderName, fileName) {
   // 1. Check bundled resources (Production)
@@ -35,7 +38,8 @@ function getBinaryPath(folderName, fileName) {
 function getModelPath(modelName) {
   const commonPaths = [
     MODELS_DIR,
-    LEGACY_MODELS_DIR,
+    ...LEGACY_MODELS_DIRS,
+    path.join(process.env.HOME || '.', '.astra', 'models'),
     path.join(process.env.HOME || '.', '.voice-hotkey', 'models'),
     path.join(process.env.HOME || '.', '.cache', 'whisper'),
     path.join(process.env.HOME || '.', 'Library', 'Caches', 'whisper')
@@ -52,9 +56,11 @@ function getModelPath(modelName) {
 
 function getPiperDir() {
   const primary = path.join(BIN_DIR, 'piper');
-  const legacy = path.join(LEGACY_BIN_DIR, 'piper');
   if (fs.existsSync(path.join(primary, 'piper'))) return primary;
-  if (fs.existsSync(path.join(legacy, 'piper'))) return legacy;
+  for (const legacyBinDir of LEGACY_BIN_DIRS) {
+    const legacy = path.join(legacyBinDir, 'piper');
+    if (fs.existsSync(path.join(legacy, 'piper'))) return legacy;
+  }
   return primary;
 }
 
@@ -64,7 +70,7 @@ function getVoiceModelPath() {
 
   const fallbacks = [
     path.join(MODELS_DIR, 'en_US-amy-medium.onnx'),
-    path.join(LEGACY_MODELS_DIR, 'en_US-amy-medium.onnx')
+    ...LEGACY_MODELS_DIRS.map(dir => path.join(dir, 'en_US-amy-medium.onnx'))
   ];
 
   for (const modelPath of fallbacks) {
@@ -89,7 +95,8 @@ module.exports = {
   getModelPath,
   COMMON_MODEL_PATHS: [
     MODELS_DIR,
-    LEGACY_MODELS_DIR,
+    ...LEGACY_MODELS_DIRS,
+    path.join(process.env.HOME || '.', '.astra', 'models'),
     path.join(process.env.HOME || '.', '.voice-hotkey', 'models'),
     path.join(process.env.HOME || '.', '.cache', 'whisper'),
     path.join(process.env.HOME || '.', 'Library', 'Caches', 'whisper')

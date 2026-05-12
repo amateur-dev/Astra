@@ -9,9 +9,9 @@
       --accent-cyan: oklch(75% 0.15 220);
       --accent-purple: oklch(65% 0.25 300);
       --fg-primary: oklch(98% 0.005 250);
-      --fg-dim: oklch(50% 0.01 250);
-      --border-light: rgba(255, 255, 255, 0.12);
-      --border-dim: rgba(255, 255, 255, 0.04);
+      --fg-dim: oklch(78% 0.02 250);
+      --border-light: rgba(255, 255, 255, 0.2);
+      --border-dim: rgba(255, 255, 255, 0.12);
       --font-body: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
       --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     }
@@ -49,8 +49,8 @@
       border: 1px solid var(--border-light);
       position: relative;
       overflow: hidden;
-      /* Background is handled by macOS Vibrancy, but we add a subtle tint */
-      background: rgba(20, 20, 24, 0.2);
+      background: #111827;
+      box-shadow: 0 18px 42px rgba(0, 0, 0, 0.35);
     }
 
     /* Animated Border Glow around Island */
@@ -64,7 +64,7 @@
       -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
       -webkit-mask-composite: xor;
       mask-composite: exclude;
-      opacity: 0.5;
+      opacity: 0.85;
       animation: scan 3s linear infinite;
       pointer-events: none;
     }
@@ -86,13 +86,13 @@
       border-radius: 50%;
       background: conic-gradient(from 0deg, var(--accent-cyan), var(--accent-purple), var(--accent-cyan));
       animation: spin 3s linear infinite;
-      filter: blur(3px);
-      opacity: 0.8;
+      filter: blur(2px);
+      opacity: 0.95;
     }
     .ai-orb-core {
       position: absolute;
       inset: 6px;
-      background: #fff;
+      background: #f8fafc;
       border-radius: 50%;
       box-shadow: 0 0 10px #fff;
     }

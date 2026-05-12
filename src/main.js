@@ -4,6 +4,7 @@ const fs = require('fs')
 const os = require('os')
 const { exec } = require('child_process')
 const Store = require('electron-store')
+app.setName('ASTRA')
 const store = new Store({
   defaults: {
     auto_paste: true,
@@ -136,6 +137,8 @@ let transcriptWindow = null
 let logWindow = null
 let overlayWindows = []
 let tray = null
+let trayAnimationTimer = null
+let trayAnimationFrame = 0
 let isRecording = false
 let isCopilotMode = false
 let copilotContext = null
@@ -182,10 +185,10 @@ function createWindow () {
     height: 600,
     minWidth: 700,
     minHeight: 500,
-    transparent: true,
-    vibrancy: 'hudWindow',
+    transparent: false,
+    backgroundColor: '#f7f8fb',
     titleBarStyle: 'hiddenInset',
-    visualEffectState: 'active',
+    title: 'ASTRA',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js')
     }
@@ -251,24 +254,50 @@ function createTray () {
     }},
     { label: 'Quit', click: () => { app.quit() } }
   ])
-  tray.setToolTip('Astra')
+  tray.setTitle('ASTRA')
+  tray.setToolTip('ASTRA')
   tray.setContextMenu(contextMenu)
 }
 
 function updateTrayIcon(state) {
   if (!tray) return
+
+  if (trayAnimationTimer) {
+    clearInterval(trayAnimationTimer)
+    trayAnimationTimer = null
+  }
+  trayAnimationFrame = 0
   
   // Update icon image
   const img = trayImages[state] || trayImages.idle
   tray.setImage(img)
+  tray.setTitle('')
   
   // Update tooltip
   const tooltips = {
-    idle: 'Astra - Ready',
-    recording: 'Astra - Recording',
-    processing: 'Astra - Processing'
+    idle: 'ASTRA - Ready',
+    recording: 'ASTRA - Recording',
+    processing: 'ASTRA - Processing'
   }
-  tray.setToolTip(tooltips[state] || 'Astra')
+  tray.setToolTip(tooltips[state] || 'ASTRA')
+
+  if (state === 'idle') {
+    tray.setTitle('ASTRA')
+  } else if (state === 'recording') {
+    const frames = ['● REC', '◉ REC']
+    tray.setTitle(frames[0])
+    trayAnimationTimer = setInterval(() => {
+      trayAnimationFrame = (trayAnimationFrame + 1) % frames.length
+      if (tray) tray.setTitle(frames[trayAnimationFrame])
+    }, 650)
+  } else if (state === 'processing') {
+    const frames = ['◆ AI', '◇ AI']
+    tray.setTitle(frames[0])
+    trayAnimationTimer = setInterval(() => {
+      trayAnimationFrame = (trayAnimationFrame + 1) % frames.length
+      if (tray) tray.setTitle(frames[trayAnimationFrame])
+    }, 550)
+  }
   console.log(`Tray state updated to: ${state}`)
 }
 
@@ -284,8 +313,6 @@ function createRecordingWindow () {
     type: 'panel', // Helps with floating behavior
     frame: false,
     transparent: true,
-    vibrancy: 'hudWindow',
-    visualEffectState: 'active',
     alwaysOnTop: true,
     resizable: false,
     skipTaskbar: true,
@@ -349,7 +376,8 @@ function createProcessingWindow () {
     width: 480,
     height: 320,
     frame: false,
-    transparent: true,
+    transparent: false,
+    backgroundColor: '#111827',
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
@@ -401,7 +429,8 @@ function createTranscriptWindow () {
     width: 680,
     height: 520,
     frame: false,
-    transparent: true,
+    transparent: false,
+    backgroundColor: '#111827',
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
@@ -462,7 +491,7 @@ function createLogWindow () {
   logWindow = new BrowserWindow({
     width: 800,
     height: 600,
-    title: 'Application Logs',
+    title: 'ASTRA Logs',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true
@@ -835,6 +864,10 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+  if (trayAnimationTimer) {
+    clearInterval(trayAnimationTimer)
+    trayAnimationTimer = null
+  }
   globalShortcut.unregisterAll()
   ttsUtils.stop()
   whisperServerManager.stop()
@@ -1531,7 +1564,7 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           if (autoPaste && pasteResult && !pasteResult.ok) {
             console.log('Paste failed, sending notification instead of breaking UX')
             new Notification({
-              title: 'Astra: Paste Failed',
+              title: 'ASTRA: Paste Failed',
               body: 'Text copied to clipboard. (Check Accessibility permissions for auto-paste)'
             }).show()
           }

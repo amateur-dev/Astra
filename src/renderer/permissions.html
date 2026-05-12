@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Astra Permissions</title>
+  <title>ASTRA Permissions</title>
   <link rel="stylesheet" href="./ui/tokens.css" />
   <style>
     body {
-      background: transparent;
+      background: var(--bg-color);
       margin: 0;
       padding: 0;
       display: flex;
@@ -24,17 +24,15 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: transparent;
+      background: var(--bg-color);
       -webkit-app-region: drag;
     }
     .permissions-card {
       width: 100%;
       max-width: 500px;
       padding: 40px;
-      background: var(--color-card, rgba(255, 255, 255, 0.85));
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border-radius: 24px;
+      background: var(--bg-secondary);
+      border-radius: 16px;
       box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
       border: 1px solid var(--border-color);
       -webkit-app-region: no-drag;
@@ -42,7 +40,7 @@
     }
     @media (prefers-color-scheme: dark) {
       .permissions-card {
-        background: rgba(30, 30, 30, 0.75);
+        background: var(--bg-secondary);
       }
     }
     @keyframes fadeIn {
@@ -139,15 +137,15 @@
         </svg>
       </div>
       <h1>System Permissions</h1>
-      <p class="subtitle">Astra needs permissions to work. When System Settings opens, find Astra in the list and enable it.</p>
+      <p class="subtitle">ASTRA needs permissions to work. When System Settings opens, find ASTRA in the list and enable it.</p>
       
       <div class="help-box" style="background: rgba(255,200,0,0.15); border: 1px solid rgba(255,200,0,0.3); border-radius: 12px; padding: 16px; margin-bottom: 24px; font-size: 13px;">
-        <strong style="color: var(--text-primary);">🔧 If you don't see Astra in the list:</strong>
+        <strong style="color: var(--text-primary);">🔧 If you don't see ASTRA in the list:</strong>
         <ul style="margin: 8px 0 0 20px; padding: 0; color: var(--text-secondary);">
           <li>Close System Settings completely</li>
           <li>Click the button again to reopen</li>
-          <li>Astra should now appear - toggle it ON</li>
-          <li>Close & reopen Astra app</li>
+          <li>ASTRA should now appear - toggle it ON</li>
+          <li>Close & reopen ASTRA</li>
         </ul>
       </div>
 
@@ -166,7 +164,7 @@
         <div class="perm-icon">⌨️</div>
         <div class="perm-content">
           <h3>Accessibility (Required)</h3>
-          <p>Allows Astra to automatically paste transcribed text. <strong>Click the button → enable Astra in the list → restart app.</strong></p>
+          <p>Allows ASTRA to automatically paste transcribed text. <strong>Click the button → enable ASTRA in the list → restart app.</strong></p>
           <div class="perm-actions" id="action-acc">
             <button class="btn btn-primary" onclick="requestAcc()">Open Accessibility Settings</button>
           </div>
@@ -177,7 +175,7 @@
         <div class="perm-icon">👁️</div>
         <div class="perm-content">
           <h3>Screen Recording (Optional)</h3>
-          <p>Allows Astra to see what's on your screen so the AI can provide context-aware responses.</p>
+          <p>Allows ASTRA to see what's on your screen so the AI can provide context-aware responses.</p>
           <div class="perm-actions" id="action-screen">
             <button class="btn btn-primary" onclick="openSystem('screen')">Open Settings</button>
           </div>

@@ -17,9 +17,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(0, 0, 0, 0.85);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      background: #0f172a;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       color: white;
       overflow: hidden;
@@ -33,10 +31,11 @@
       align-items: center;
       gap: 24px;
       padding: 40px;
-      background: rgba(255, 255, 255, 0.08);
-      border-radius: 20px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: #111827;
+      border-radius: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.24);
       min-width: 400px;
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
     }
 
     /* Spinner */
@@ -50,7 +49,7 @@
       width: 100%;
       height: 100%;
       border-radius: 50%;
-      border: 6px solid rgba(255, 255, 255, 0.15);
+      border: 6px solid rgba(148, 163, 184, 0.26);
       border-top-color: oklch(75% 0.15 220);
       animation: spin 1s linear infinite;
     }
@@ -75,7 +74,7 @@
 
     .progress-circle-bg {
       fill: none;
-      stroke: rgba(255, 255, 255, 0.15);
+      stroke: rgba(148, 163, 184, 0.26);
       stroke-width: 8;
     }
 
@@ -117,7 +116,7 @@
     /* Sub-status (smaller details) */
     .sub-status {
       font-size: 14px;
-      color: rgba(255, 255, 255, 0.6);
+      color: rgba(226, 232, 240, 0.76);
       text-align: center;
       min-height: 21px;
     }
@@ -126,7 +125,7 @@
     .progress-bar-container {
       width: 100%;
       height: 6px;
-      background: rgba(255, 255, 255, 0.15);
+      background: rgba(148, 163, 184, 0.24);
       border-radius: 3px;
       overflow: hidden;
       display: none; /* Hidden by default */
@@ -161,8 +160,8 @@
     .cancel-button {
       margin-top: 8px;
       padding: 8px 20px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.32);
       border-radius: 8px;
       color: rgba(255, 255, 255, 0.7);
       font-size: 13px;

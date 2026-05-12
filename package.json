@@ -1,7 +1,7 @@
 {
-  "name": "astra-mac-app",
+  "name": "astra",
   "version": "2.0.0",
-  "description": "Minimal Electron-based voice-to-text tray app (rewrite)",
+  "description": "ASTRA voice-to-text for macOS",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/amateur-dev/local-hotkey-voice-mac-app.git"
@@ -32,9 +32,14 @@
     "node-fetch": "^3.3.1"
   },
   "build": {
-    "appId": "com.example.voicehotkey",
-    "productName": "Astra",
+    "appId": "dev.dipeshsukhani.astra",
+    "productName": "ASTRA",
     "afterSign": "scripts/afterSign.js",
+    "files": [
+      "src/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "build/icon.icns",
@@ -53,9 +58,9 @@
         }
       ],
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Astra needs microphone access to record your voice and transcribe it locally on your Mac.",
-        "NSAppleEventsUsageDescription": "Astra needs this to automatically paste transcribed text into the app you are using.",
-        "NSScreenCaptureUsageDescription": "Astra can optionally read your screen to provide context-aware AI responses."
+        "NSMicrophoneUsageDescription": "ASTRA needs microphone access to record your voice and transcribe it locally on your Mac.",
+        "NSAppleEventsUsageDescription": "ASTRA needs this to automatically paste transcribed text into the app you are using.",
+        "NSScreenCaptureUsageDescription": "ASTRA can optionally read your screen to provide context-aware AI responses."
       }
     },
     "extraResources": [
