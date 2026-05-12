@@ -60,7 +60,7 @@ Astra's downloadable builds are currently ad-hoc signed, not Apple-notarized. Th
 To verify a downloaded DMG, compare its SHA256 checksum with the checksums published in `RELEASE_CHECKSUMS.txt`:
 
 ```bash
-shasum -a 256 Astra-1.0.5-arm64.dmg
+shasum -a 256 Astra-2.0.0-arm64.dmg
 ```
 
 ### 3️⃣ Start Using

@@ -1,6 +1,6 @@
 {
   "name": "astra-mac-app",
-  "version": "1.0.5",
+  "version": "2.0.0",
   "description": "Minimal Electron-based voice-to-text tray app (rewrite)",
   "repository": {
     "type": "git",
