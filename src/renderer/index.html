@@ -1,259 +1,249 @@
 <!doctype html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Voice Hotkey (Electron)</title>
-    <link rel="stylesheet" href="./ui/tokens.css" />
-    <style>
-      body { padding: 20px; background: #f6f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
-  .layout-grid{ display:grid; grid-template-columns: 1fr; gap:20px; align-items:start; }
-      .top-row{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px }
-      .status-pill { padding:6px 12px; border-radius:12px; background:#e6f4ea; color:#0b6b2e }
-      .card{ background:#fff; border-radius:10px; padding:18px; box-shadow:0 6px 18px rgba(0,0,0,0.04) }
-      .btn{ padding:8px 12px; border-radius:8px; border:1px solid #e6e6e6; background:#fff; cursor:pointer }
-      .btn-primary{ background:#0b79ff; color:#fff; border-color:transparent }
-    </style>
-  </head>
-  <body>
-    <div class="top-row">
-      <h2 style="margin:0">Voice Hotkey</h2>
-      <div style="display:flex; gap:12px; align-items:center;">
-        <div id="status" class="status-pill">Idle</div>
-        <button id="settingsBtn" class="btn">Settings</button>
+<head>
+  <meta charset="utf-8" />
+  <title>ASTRA</title>
+  <link rel="stylesheet" href="./ui/tokens.css" />
+</head>
+<body>
+  <!-- Main View -->
+  <div class="main-container">
+    <div class="header">
+      <div class="brand">
+        <div class="logo"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg></div>
+        <h2>ASTRA</h2>
+      </div>
+      <div class="actions">
+        <div id="status" class="status-indicator">Ready</div>
+        <button id="settingsBtn" class="icon-btn" title="Settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </button>
       </div>
     </div>
 
-    <div class="layout-grid">
-      <div class="card" id="leftCard">
-        <h3 style="margin-top:0">Record</h3>
-  <!-- Microphone permission moved into Settings modal to keep main UI minimal. -->
-        <div style="display:flex; justify-content:center; align-items:center; height:220px;">
-          <div style="width:84px; height:84px; border-radius:50%; background:#ff5746; display:flex; align-items:center; justify-content:center; box-shadow:0 8px 28px rgba(0,0,0,0.08)">
-            <span style="font-size:28px">🎤</span>
-          </div>
-        </div>
-        <div style="display:flex; gap:12px; justify-content:center; margin-top:12px">
-          <button id="recordBtn" class="btn btn-primary">Start Recording</button>
-          <button id="clearBtn" class="btn" disabled>Clear & Re-Record</button>
-        </div>
-        <div style="text-align:center; margin-top:8px; color:#888; font-size:13px"><span id="hotkeyLabel">Hotkey: CommandOrControl+Shift+V</span></div>
+    <div class="content" id="leftCard">
+      <div class="mic-container">
+        <button id="recordBtn" class="mic-button">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+        </button>
+        <div class="mic-glow"></div>
       </div>
-
-  <!-- Transcript will be injected into the Record card when available; no right-column shown by default -->
-    </div>
-
-    <!-- Settings modal (hidden by default). Inputs keep their IDs so renderer.js bindings continue to work. -->
-    <div id="settingsModal" style="display:none; position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.45); align-items:center; justify-content:center;">
-      <div style="background:#fff; padding:24px; width:520px; border-radius:12px; box-shadow:0 6px 18px rgba(0,0,0,0.25); margin:40px auto; max-height:80vh; overflow:auto;">
-        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e6e6e6; padding-bottom:16px;">
-          <h3 style="margin:0">Settings</h3>
-          <button id="closeSettingsBtn" class="btn">✕</button>
-        </div>
-
-        <!-- Recording Section -->
-        <div style="margin-top:20px;">
-          <h4 style="margin:0 0 12px 0; font-size:15px; color:#333;">Recording</h4>
-          
-          <div style="margin-bottom:12px;">
-            <label style="font-size:14px; color:#666;">Global Hotkey</label>
-            <div style="display:flex; gap:8px; margin-top:6px; align-items:center;">
-              <input id="hotkeyInput" type="text" style="flex:1; padding:8px; border:1px solid #e6e6e6; border-radius:6px; font-family:monospace;" placeholder="CommandOrControl+Shift+V" />
-              <button id="setHotkeyBtn" class="btn" style="white-space:nowrap;">Set Hotkey</button>
-              <button id="clearHotkeyBtn" class="btn" style="white-space:nowrap;">Clear</button>
-            </div>
-            <div style="margin-top:4px; color:#999; font-size:12px">Press keys to set hotkey, or type manually</div>
-          </div>
-
-          <div style="margin-bottom:12px;">
-            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-              <input id="autoPaste" type="checkbox" checked style="width:18px; height:18px; cursor:pointer;" />
-              <span style="font-size:14px; color:#333;">Auto-paste transcripts into active app</span>
-            </label>
-            <div style="margin-top:4px; margin-left:26px; color:#999; font-size:12px">Automatically paste transcripts after recording completes</div>
-          </div>
-
-          <div style="margin-bottom:12px;">
-            <label style="font-size:14px; color:#666;">Whisper Model</label>
-            <div id="modelListContainer" style="margin-top:6px; border:1px solid #e6e6e6; border-radius:6px; background:#fff; overflow:hidden; max-height: 200px; overflow-y: auto;">
-               <div style="padding:12px; text-align:center; color:#999;">Loading models...</div>
-            </div>
-            <div style="margin-top:4px; color:#999; font-size:12px">Select a model for transcription (larger = more accurate but slower)</div>
-          </div>
-
-          <div style="margin-bottom:12px;" id="polishSection">
-            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-              <input id="ollamaEnabled" type="checkbox" style="width:18px; height:18px; cursor:pointer;" />
-              <span style="font-size:14px; color:#333;">Polish transcripts with Ollama</span>
-              <span style="font-size:11px; color:#999; background:#f0f0f0; padding:2px 6px; border-radius:4px;">Optional</span>
-            </label>
-            <div style="margin-top:4px; margin-left:26px; color:#999; font-size:12px">Requires Ollama to be installed on your system</div>
-          </div>
-        </div>
-
-        <!-- System Section -->
-        <div style="margin-top:24px; padding-top:20px; border-top:1px solid #e6e6e6;">
-          <h4 style="margin:0 0 12px 0; font-size:15px; color:#333;">System</h4>
-          
-          <div style="margin-bottom:12px;">
-            <label style="font-size:14px; color:#666; display:block; margin-bottom:6px;">Microphone Permission</label>
-            <div style="display:flex; gap:8px; align-items:center;">
-              <span id="micStatus" style="font-size:13px; color:#666;">unknown</span>
-              <button id="openMicSettingsBtn" class="btn" style="white-space:nowrap;">Open Settings</button>
-            </div>
-          </div>
-
-          <div style="margin-bottom:12px;">
-            <button id="viewLogsBtn" class="btn" style="width:100%;">View Logs</button>
-          </div>
-        </div>
-
-        <!-- About Section -->
-        <div style="margin-top:24px; padding-top:20px; border-top:1px solid #e6e6e6;">
-          <h4 style="margin:0 0 12px 0; font-size:15px; color:#333;">About</h4>
-          
-          <div style="font-size:13px; color:#666; line-height:1.6;">
-            <div style="margin-bottom:8px;">
-              <strong>Voice Hotkey</strong> <span id="appVersion" style="color:#999;">v2.1.0</span>
-            </div>
-            <div style="margin-bottom:8px;">
-              A quick voice-to-text utility using Whisper AI
-            </div>
-            <div style="margin-bottom:8px;">
-              Created by <a href="#" id="authorLink" style="color:#0b79ff; text-decoration:none;">Dipesh Sukhani</a>
-            </div>
-            <div style="margin-bottom:8px;">
-              <a href="#" id="githubLink" style="color:#0b79ff; text-decoration:none;">View on GitHub →</a>
-            </div>
-            <div style="margin-top:12px; padding:10px; background:#f9f9f9; border-radius:6px; font-size:12px; display:none;">
-              <div style="margin-bottom:4px;"><strong>Dependencies Status</strong></div>
-              <div id="depStatus" style="color:#999;">Checking...</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Hidden fields for backward compatibility - kept for renderer.js but not shown -->
-        <div style="display:none;">
-          <input id="whisperBin" type="text" />
-          <input id="ffmpegPath" type="text" />
-          <input id="modelPath" type="text" />
-          <input id="suggestedCmd" type="text" />
-          <input id="autoTranscribe" type="checkbox" checked />
-          <input id="polishWhileTranscribe" type="checkbox" />
-          <input id="ollamaUrl" type="text" />
-          <input id="ollamaModel" type="text" />
-          <button id="saveSettingsBtn"></button>
-          <button id="testSettingsBtn"></button>
-          <button id="recheckWhisperBtn"></button>
-          <button id="useSuggestedBtn"></button>
-          <button id="copySuggestedBtn"></button>
-          <button id="downloadTinyBtn"></button>
-          <button id="downloadSmallBtn"></button>
-          <button id="downloadBaseBtn"></button>
-          <div id="downloadStatus"></div>
-          <div id="downloadProgress"><div id="downloadProgressBar"></div></div>
-          <div id="settingsResult"></div>
-        </div>
-
-        <div style="margin-top:24px; padding-top:16px; border-top:1px solid #e6e6e6; display:flex; justify-content:flex-end;">
-          <button id="closeSettingsBtnBottom" class="btn btn-primary">Done</button>
-        </div>
+      
+      <div class="hint-text">
+        <span id="hotkeyLabel">⌘ + Shift + V</span> to Record
+      </div>
+      
+      <div class="controls-hidden">
+        <button id="clearBtn" class="btn" disabled>Clear</button>
       </div>
     </div>
+  </div>
 
-    <script>
-      // Minimal open/close wiring for the Settings modal. Renderer code still binds to the inputs by ID.
-      (function(){
-        const settingsBtn = document.getElementById('settingsBtn');
-        const settingsModal = document.getElementById('settingsModal');
-        const closeSettingsBtn = document.getElementById('closeSettingsBtn');
-        const closeSettingsBtnBottom = document.getElementById('closeSettingsBtnBottom');
-        const viewLogsBtn = document.getElementById('viewLogsBtn');
-        const githubLink = document.getElementById('githubLink');
-        const authorLink = document.getElementById('authorLink');
-        const appVersion = document.getElementById('appVersion');
-        const depStatus = document.getElementById('depStatus');
-        
-        function openSettings(){ 
-          settingsModal.style.display='flex';
-          // Check dependencies status
-          checkDependencies();
-          // Check Ollama and hide/show polish section
-          checkOllama();
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Preferences</h3>
+        <button id="closeSettingsBtn" class="icon-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div class="setting-group">
+          <div class="setting-row">
+            <div class="setting-info">
+              <label>Standard Hotkey</label>
+              <span class="setting-desc">Audio + Selected Text</span>
+            </div>
+            <div class="setting-action">
+              <input id="hotkeyInput" type="text" class="input-mono" placeholder="Cmd+Shift+V" readonly />
+              <button id="setHotkeyBtn" class="btn-small">Set</button>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <label>Vision Hotkey</label>
+              <span class="setting-desc">Audio + Text + Screen</span>
+            </div>
+            <div class="setting-action">
+              <input id="visionHotkeyInput" type="text" class="input-mono" placeholder="Cmd+Opt+Shift+V" readonly />
+              <button id="setVisionHotkeyBtn" class="btn-small">Set</button>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <label for="autoPaste">Auto-paste Transcript</label>
+              <span class="setting-desc">Paste directly into active app</span>
+            </div>
+            <div class="setting-action">
+              <label class="switch">
+                <input id="autoPaste" type="checkbox" checked />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+          
+          <div class="setting-row" id="polishSection">
+            <div class="setting-info">
+              <label for="ollamaEnabled">Polish with AI (Ollama)</label>
+              <span class="setting-desc">Improves grammar locally</span>
+            </div>
+            <div class="setting-action">
+              <label class="switch">
+                <input id="ollamaEnabled" type="checkbox" />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <label for="enableAiCaveat">Append AI Caveat</label>
+              <span class="setting-desc">Adds disclaimer to output</span>
+            </div>
+            <div class="setting-action">
+              <label class="switch">
+                <input id="enableAiCaveat" type="checkbox" />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-group">
+          <h4>Models & Permissions</h4>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <label>Whisper Model</label>
+            </div>
+          </div>
+          <div id="modelListContainer" class="model-list">
+             <div class="loading-text">Loading models...</div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <label>Microphone Access</label>
+              <span id="micStatus" class="status-badge">unknown</span>
+            </div>
+            <div class="setting-action">
+              <button id="openMicSettingsBtn" class="btn-small">Open Settings</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <div class="footer-links">
+          <a href="#" id="viewLogsBtn">Logs</a>
+          <span class="dot">•</span>
+          <a href="#" id="githubLink">GitHub</a>
+          <span class="dot">•</span>
+          <span class="version-text" id="appVersion">v2.1.0</span>
+        </div>
+        <button id="closeSettingsBtnBottom" class="btn-primary">Done</button>
+      </div>
+
+      <!-- Hidden inputs for renderer compat -->
+      <div style="display:none;">
+        <input id="whisperBin" type="text" />
+        <input id="ffmpegPath" type="text" />
+        <input id="modelPath" type="text" />
+        <input id="suggestedCmd" type="text" />
+        <input id="autoTranscribe" type="checkbox" checked />
+        <input id="polishWhileTranscribe" type="checkbox" />
+        <input id="ollamaUrl" type="text" />
+        <input id="ollamaModel" type="text" />
+        <button id="saveSettingsBtn"></button>
+        <button id="testSettingsBtn"></button>
+        <button id="recheckWhisperBtn"></button>
+        <button id="useSuggestedBtn"></button>
+        <button id="copySuggestedBtn"></button>
+        <button id="downloadTinyBtn"></button>
+        <button id="downloadSmallBtn"></button>
+        <button id="downloadBaseBtn"></button>
+        <div id="downloadStatus"></div>
+        <div id="downloadProgress"><div id="downloadProgressBar"></div></div>
+        <div id="settingsResult"></div>
+        <div id="depStatus"></div>
+        <a href="#" id="authorLink"></a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      const settingsBtn = document.getElementById('settingsBtn');
+      const settingsModal = document.getElementById('settingsModal');
+      const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+      const closeSettingsBtnBottom = document.getElementById('closeSettingsBtnBottom');
+      const viewLogsBtn = document.getElementById('viewLogsBtn');
+      const githubLink = document.getElementById('githubLink');
+      const appVersion = document.getElementById('appVersion');
+      const depStatus = document.getElementById('depStatus');
+      
+      function openSettings(){ 
+        settingsModal.style.display='flex';
+        checkDependencies();
+        checkOllama();
+      }
+      function closeSettings(){ settingsModal.style.display='none'; }
+      
+      function checkDependencies() {
+        if (window.electronAPI && window.electronAPI.checkDependencies) {
+          window.electronAPI.checkDependencies().then(status => {
+            depStatus.innerHTML = status;
+          });
         }
-        
-        function closeSettings(){ settingsModal.style.display='none'; }
-        
-        function checkDependencies() {
-          // This will be populated by renderer.js or main process
-          if (window.electronAPI && window.electronAPI.checkDependencies) {
-            window.electronAPI.checkDependencies().then(status => {
-              depStatus.innerHTML = status;
-            });
-          } else {
-            depStatus.textContent = 'Whisper: ✓ | FFmpeg: ✓ | Model: ✓';
+      }
+      function checkOllama() {
+        const polishSection = document.getElementById('polishSection');
+        if (window.electronAPI && window.electronAPI.checkOllama) {
+          window.electronAPI.checkOllama().then(result => {
+            if (!result.running) {
+              polishSection.style.opacity = '0.5';
+              const ollamaCheckbox = document.getElementById('ollamaEnabled');
+              if (ollamaCheckbox) ollamaCheckbox.checked = false;
+            } else {
+              polishSection.style.opacity = '1';
+            }
+          }).catch(err => {
+            polishSection.style.opacity = '0.5';
+          });
+        }
+      }
+      
+      if(settingsBtn) settingsBtn.addEventListener('click', openSettings);
+      if(closeSettingsBtn) closeSettingsBtn.addEventListener('click', closeSettings);
+      if(closeSettingsBtnBottom) closeSettingsBtnBottom.addEventListener('click', closeSettings);
+      
+      if(viewLogsBtn) {
+        viewLogsBtn.addEventListener('click', () => {
+          if (window.electronAPI && window.electronAPI.openLogViewer) {
+            window.electronAPI.openLogViewer();
           }
-        }
-        
-        function checkOllama() {
-          const polishSection = document.getElementById('polishSection');
-          if (window.electronAPI && window.electronAPI.checkOllama) {
-            window.electronAPI.checkOllama().then(result => {
-              if (result.running) {
-                polishSection.style.display = 'block';
-              } else {
-                polishSection.style.display = 'none';
-                // Also uncheck the polish checkbox if Ollama is not available
-                const ollamaCheckbox = document.getElementById('ollamaEnabled');
-                if (ollamaCheckbox) ollamaCheckbox.checked = false;
-              }
-            }).catch(err => {
-              console.error('Failed to check Ollama:', err);
-              polishSection.style.display = 'none';
-            });
+        });
+      }
+      if(githubLink) {
+        githubLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          if (window.electronAPI && window.electronAPI.openExternal) {
+            window.electronAPI.openExternal('https://github.com/amateur-dev/local-hotkey-voice-mac-app');
           }
-        }
-        
-        if(settingsBtn) settingsBtn.addEventListener('click', openSettings);
-        if(closeSettingsBtn) closeSettingsBtn.addEventListener('click', closeSettings);
-        if(closeSettingsBtnBottom) closeSettingsBtnBottom.addEventListener('click', closeSettings);
-        
-        if(viewLogsBtn) {
-          viewLogsBtn.addEventListener('click', () => {
-            if (window.electronAPI && window.electronAPI.openLogViewer) {
-              window.electronAPI.openLogViewer();
-            }
-          });
-        }
-        
-        if(githubLink) {
-          githubLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            if (window.electronAPI && window.electronAPI.openExternal) {
-              window.electronAPI.openExternal('https://github.com/amateur-dev/local-hotkey-voice-mac-app');
-            }
-          });
-        }
-
-        if(authorLink) {
-          authorLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            if (window.electronAPI && window.electronAPI.openExternal) {
-              window.electronAPI.openExternal('https://dipeshsukhani.dev');
-            }
-          });
-        }
-        
-        // Get app version
-        if(window.electronAPI && window.electronAPI.getAppVersion) {
-          window.electronAPI.getAppVersion().then(version => {
-            appVersion.textContent = 'v' + version;
-          });
-        }
-        
-        // Close modal on ESC
-        document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeSettings(); });
-      })();
-    </script>
-    <script src="renderer.js"></script>
-  </body>
+        });
+      }
+      if(window.electronAPI && window.electronAPI.getAppVersion) {
+        window.electronAPI.getAppVersion().then(version => {
+          appVersion.textContent = 'v' + version;
+        });
+      }
+      document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeSettings(); });
+    })();
+  </script>
+  <script src="renderer.js"></script>
+</body>
 </html>

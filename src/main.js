@@ -1,19 +1,110 @@
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, clipboard } = require('electron')
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, clipboard, systemPreferences, desktopCapturer, Notification, screen } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
 const { exec } = require('child_process')
 const Store = require('electron-store')
+app.setName('ASTRA')
 const store = new Store({
   defaults: {
     auto_paste: true,
-    auto_transcribe: true
+    auto_transcribe: true,
+    screen_context_enabled: false,
+    enable_ai_caveat: true
   }
 })
 const logger = require('./lib/logger')
 const dependencyManager = require('./lib/dependency-manager')
-const { BIN_DIR, MODELS_DIR, WHISPER_PATH } = require('./lib/paths')
+const { BIN_DIR, MODELS_DIR, WHISPER_PATH, PIPER_PATH, VOICE_MODEL_PATH, getModelPath } = require('./lib/paths')
 const { shell } = require('electron')
+const ttsUtils = require('./lib/tts-utils');
+
+// Resolve a usable `fetch` in the main process.
+let fetch;
+(async () => {
+  if (global.fetch) {
+    fetch = global.fetch;
+  } else if (typeof globalThis.fetch === 'function') {
+    fetch = globalThis.fetch.bind(globalThis);
+  } else {
+    try {
+      const nf = require('node-fetch');
+      fetch = nf && (nf.default || nf);
+    } catch (errRequire) {
+      try {
+        const nodeFetch = await import('node-fetch');
+        fetch = nodeFetch && (nodeFetch.default || nodeFetch);
+      } catch (errImport) {
+        try {
+          const undici = require('undici');
+          fetch = undici && undici.fetch;
+        } catch (errUndici) {
+          console.error('Failed to load any fetch implementation:', errRequire, errImport, errUndici);
+        }
+      }
+    }
+  }
+})();
+
+const whisperServerManager = require('./lib/whisper-server-manager');
+const memoryManager = require('./lib/memory-manager');
+const TTS_HOTKEY = 'CommandOrControl+Shift+D';
+
+async function performMacOCR(dataUrl) {
+  try {
+    if (process.platform !== 'darwin') return null;
+    
+    // Save base64 to temp file
+    const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(base64Data, 'base64');
+    const tmpPath = path.join(os.tmpdir(), `ocr_tmp_${Date.now()}.jpg`);
+    fs.writeFileSync(tmpPath, buffer);
+    
+    // Compile and run swift script
+    const scriptPath = path.join(__dirname, 'lib', 'mac-ocr.swift');
+    const ocrText = await new Promise((resolve) => {
+      exec(`swift "${scriptPath}" "${tmpPath}"`, (error, stdout) => {
+        if (error) {
+          console.error('OCR execution failed:', error);
+          resolve(null);
+        } else {
+          resolve(stdout.trim());
+        }
+      });
+    });
+    
+    // Cleanup
+    try { fs.unlinkSync(tmpPath); } catch(e) {}
+    
+    return ocrText;
+  } catch (err) {
+    console.error('performMacOCR error:', err);
+    return null;
+  }
+}
+
+// Helper: Clean up temporary files
+async function cleanupTempFiles(forceAll = false) {
+  try {
+    const tmpDir = os.tmpdir();
+    const files = await fs.promises.readdir(tmpDir);
+    const now = Date.now();
+    const maxAge = forceAll ? 0 : 24 * 60 * 60 * 1000; // 24 hours
+
+    for (const file of files) {
+      if (file.startsWith('astra-') || file.startsWith('streaming-')) {
+        const filePath = path.join(tmpDir, file);
+        const stats = await fs.promises.stat(filePath);
+        if (now - stats.mtimeMs > maxAge) {
+          await fs.promises.unlink(filePath).catch(() => {});
+        }
+      }
+    }
+    console.log(`Cleanup complete${forceAll ? ' (forced)' : ''}`);
+  } catch (err) {
+    console.error('Cleanup failed:', err);
+  }
+}
 
 // Add BIN_DIR to PATH so child_process can find ffmpeg/whisper
 process.env.PATH = `${BIN_DIR}${path.delimiter}${process.env.PATH}`
@@ -39,79 +130,71 @@ console.warn = (...args) => {
 // Suggested recommended default transcription command (does NOT overwrite user settings)
 const SUGGESTED_TRANSCRIBE_CMD = `"${WHISPER_PATH}" -m models/ggml-small.en.bin -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -nt`
 
-// Resolve a usable `fetch` in the main process.
-// Prefer a built-in/global fetch (available in newer Node/Electron), then try
-// CommonJS `require('node-fetch')`, then dynamic import of ESM `node-fetch`,
-// and finally `undici.fetch` as a last resort. This makes the packaged DMG
-// more resilient when the environment differs from the dev machine.
-let fetch = null
-try {
-  if (typeof globalThis.fetch === 'function') {
-    fetch = globalThis.fetch.bind(globalThis)
-  }
-} catch (e) {
-  // ignore
-}
-if (!fetch) {
-  try {
-    // Try commonjs require (works if node-fetch installed as CJS or has default export)
-    // This will throw if node-fetch is ESM-only in this runtime, which we catch below.
-    // eslint-disable-next-line global-require
-    const nf = require('node-fetch')
-    fetch = nf && (nf.default || nf)
-  } catch (errRequire) {
-    // try dynamic import of ESM package as a fallback
-    ;(async () => {
-      try {
-        const nodeFetch = await import('node-fetch')
-        fetch = nodeFetch && (nodeFetch.default || nodeFetch)
-      } catch (errImport) {
-        try {
-          // Last resort: try undici if available
-          // eslint-disable-next-line global-require
-          const undici = require('undici')
-          fetch = undici && undici.fetch
-        } catch (errUndici) {
-          console.error('Failed to load any fetch implementation (global, node-fetch, undici):', errRequire, errImport, errUndici)
-        }
-      }
-    })()
-  }
-}
-
 let mainWindow = null
 let recordingWindow = null
 let processingWindow = null
 let transcriptWindow = null
 let logWindow = null
+let overlayWindows = []
 let tray = null
+let trayAnimationTimer = null
+let trayAnimationFrame = 0
 let isRecording = false
+let isCopilotMode = false
+let copilotContext = null
+let screenContext = null
 let isCancelled = false
 // Live mock state per renderer sender (used for incremental patch simulation)
 const liveMockState = {}
 
+function checkAndRouteWindow() {
+  if (!mainWindow) return;
+
+  if (process.platform === 'darwin') {
+    const mic = systemPreferences.getMediaAccessStatus('microphone') === 'granted';
+    const acc = systemPreferences.isTrustedAccessibilityClient(false);
+    
+    if (!mic || !acc) {
+      mainWindow.setSize(700, 600);
+      mainWindow.center();
+      mainWindow.loadFile(path.join(__dirname, 'renderer', 'permissions.html'));
+      return;
+    }
+  }
+
+  // Check dependencies and decide which page to load
+  dependencyManager.checkDependencies().then(status => {
+    // Check if we have FFmpeg, Whisper, and at least one model
+    const hasModel = Object.values(status.models).some(v => v);
+    if (status.ffmpeg && status.whisper && hasModel) {
+      mainWindow.setSize(800, 600);
+      mainWindow.center();
+      mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+    } else {
+      // Resize for setup wizard
+      mainWindow.setSize(700, 600);
+      mainWindow.center();
+      mainWindow.loadFile(path.join(__dirname, 'renderer', 'setup.html'));
+    }
+  });
+}
+
 function createWindow () {
   mainWindow = new BrowserWindow({
-    width: 400,
-    height: 300,
+    width: 800,
+    height: 600,
+    minWidth: 700,
+    minHeight: 500,
+    transparent: false,
+    backgroundColor: '#f7f8fb',
+    titleBarStyle: 'hiddenInset',
+    title: 'ASTRA',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js')
     }
   })
   
-  // Check dependencies and decide which page to load
-  dependencyManager.checkDependencies().then(status => {
-    // Check if we have FFmpeg, Whisper, and at least one model
-    const hasModel = Object.values(status.models).some(v => v)
-    if (status.ffmpeg && status.whisper && hasModel) {
-      mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
-    } else {
-      // Resize for setup wizard
-      mainWindow.setSize(700, 600)
-      mainWindow.center()
-      mainWindow.loadFile(path.join(__dirname, 'renderer', 'setup.html'))
-    }
-  })
+  checkAndRouteWindow();
 
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -126,6 +209,8 @@ function createWindow () {
     ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
       console.log('Permission request for', permission, 'details=', details)
       if (permission === 'media') return callback(true)
+      if (permission === 'clipboard-sanitized-write') return callback(true)
+      if (permission === 'clipboard-read') return callback(true)
       // default: deny other permissions
       return callback(false)
     })
@@ -169,24 +254,50 @@ function createTray () {
     }},
     { label: 'Quit', click: () => { app.quit() } }
   ])
-  tray.setToolTip('Voice Hotkey')
+  tray.setTitle('ASTRA')
+  tray.setToolTip('ASTRA')
   tray.setContextMenu(contextMenu)
 }
 
 function updateTrayIcon(state) {
   if (!tray) return
+
+  if (trayAnimationTimer) {
+    clearInterval(trayAnimationTimer)
+    trayAnimationTimer = null
+  }
+  trayAnimationFrame = 0
   
   // Update icon image
   const img = trayImages[state] || trayImages.idle
   tray.setImage(img)
+  tray.setTitle('')
   
   // Update tooltip
   const tooltips = {
-    idle: 'Voice Hotkey - Ready',
-    recording: 'Voice Hotkey - Recording',
-    processing: 'Voice Hotkey - Processing'
+    idle: 'ASTRA - Ready',
+    recording: 'ASTRA - Recording',
+    processing: 'ASTRA - Processing'
   }
-  tray.setToolTip(tooltips[state] || 'Voice Hotkey')
+  tray.setToolTip(tooltips[state] || 'ASTRA')
+
+  if (state === 'idle') {
+    tray.setTitle('ASTRA')
+  } else if (state === 'recording') {
+    const frames = ['● REC', '◉ REC']
+    tray.setTitle(frames[0])
+    trayAnimationTimer = setInterval(() => {
+      trayAnimationFrame = (trayAnimationFrame + 1) % frames.length
+      if (tray) tray.setTitle(frames[trayAnimationFrame])
+    }, 650)
+  } else if (state === 'processing') {
+    const frames = ['◆ AI', '◇ AI']
+    tray.setTitle(frames[0])
+    trayAnimationTimer = setInterval(() => {
+      trayAnimationFrame = (trayAnimationFrame + 1) % frames.length
+      if (tray) tray.setTitle(frames[trayAnimationFrame])
+    }, 550)
+  }
   console.log(`Tray state updated to: ${state}`)
 }
 
@@ -197,8 +308,8 @@ function createRecordingWindow () {
   }
   
   recordingWindow = new BrowserWindow({
-    width: 320,
-    height: 160,
+    width: 440,
+    height: 80,
     type: 'panel', // Helps with floating behavior
     frame: false,
     transparent: true,
@@ -265,7 +376,8 @@ function createProcessingWindow () {
     width: 480,
     height: 320,
     frame: false,
-    transparent: true,
+    transparent: false,
+    backgroundColor: '#111827',
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
@@ -317,7 +429,8 @@ function createTranscriptWindow () {
     width: 680,
     height: 520,
     frame: false,
-    transparent: true,
+    transparent: false,
+    backgroundColor: '#111827',
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
@@ -378,7 +491,7 @@ function createLogWindow () {
   logWindow = new BrowserWindow({
     width: 800,
     height: 600,
-    title: 'Application Logs',
+    title: 'ASTRA Logs',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true
@@ -392,11 +505,283 @@ function createLogWindow () {
   })
 }
 
+function createOverlayWindows () {
+  if (overlayWindows.length > 0) return
+
+  const displays = screen.getAllDisplays()
+  displays.forEach(display => {
+    const { width, height, x, y } = display.bounds
+
+    let win = new BrowserWindow({
+      x,
+      y,
+      width,
+      height,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      hasShadow: false,
+      focusable: false,
+      show: false,
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false
+      }
+    })
+
+    win.setIgnoreMouseEvents(true, { forward: true })
+    win.setAlwaysOnTop(true, 'screen-saver')
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+    win.loadFile(path.join(__dirname, 'renderer', 'overlay.html'))
+    
+    win.on('closed', () => {
+      overlayWindows = overlayWindows.filter(w => w !== win)
+    })
+    
+    overlayWindows.push(win)
+  })
+}
+
+async function captureScreen() {
+  try {
+    const sources = await desktopCapturer.getSources({ 
+      types: ['screen'], 
+      thumbnailSize: { width: 800, height: 450 } // Resolution tuned for fast LLM processing
+    });
+    if (sources && sources.length > 0) {
+      // Use the first screen as primary. Convert to JPEG with 50% quality for maximum speed.
+      const dataUrl = sources[0].thumbnail.toDataURL('image/jpeg', 50);
+      console.log('Screen captured successfully (Heavily Optimized JPEG)');
+      return dataUrl;
+    }
+  } catch (err) {
+    console.error('Failed to capture screen:', err);
+  }
+  return null;
+}
+
+async function captureSelectedText() {
+  const accessibilityScript = `
+    tell application "System Events"
+      set frontApp to first application process whose frontmost is true
+      set frontAppName to name of frontApp
+      try
+        set focusedElement to value of attribute "AXFocusedUIElement" of frontApp
+        set selectedText to value of attribute "AXSelectedText" of focusedElement
+        if selectedText is not missing value and selectedText is not "" then
+          return frontAppName & "\n" & selectedText
+        end if
+      end try
+      return frontAppName & "\n"
+    end tell
+  `;
+
+  try {
+    const directText = await new Promise((resolve) => {
+      exec(`osascript -e ${JSON.stringify(accessibilityScript)}`, (err, stdout) => {
+        if (err) return resolve(null);
+        const output = (stdout || '').toString();
+        const newlineIndex = output.indexOf('\n');
+        const text = newlineIndex >= 0 ? output.slice(newlineIndex + 1).trim() : '';
+        resolve(text || null);
+      });
+    });
+
+    if (directText) {
+      return directText;
+    }
+  } catch (err) {
+    console.warn('[INFO] Direct selected-text capture failed, falling back to Cmd+C:', err.message || err);
+  }
+
+  const script = `
+    tell application "System Events"
+      set frontApp to first application process whose frontmost is true
+      set frontAppName to name of frontApp
+      tell process frontAppName
+        keystroke "c" using {command down}
+      end tell
+      return frontAppName
+    end tell
+  `;
+  
+  clipboard.clear();
+  
+  return new Promise((resolve) => {
+    exec(`osascript -e ${JSON.stringify(script)}`, (err, stdout, stderr) => {
+      if (err) {
+        if (err.message && err.message.includes('not allowed to send keystrokes')) {
+          console.warn('[INFO] Accessibility permission missing: cannot auto-copy selected text via Cmd+C.');
+        } else {
+          console.error('Failed to copy text (osascript error):', err.message || err);
+        }
+        return resolve(null);
+      }
+      
+      let attempts = 0;
+      const checkClipboard = setInterval(() => {
+        const text = clipboard.readText();
+        attempts++;
+        
+        if (text) {
+          clearInterval(checkClipboard);
+          if (/^https?:\/\/\S+$/i.test(text.trim())) {
+            console.warn('[INFO] Clipboard copy returned a URL, not selected text. Ignoring as Copilot context.');
+            resolve(null);
+            return;
+          }
+          resolve(text);
+        } else if (attempts > 10) {
+           clearInterval(checkClipboard);
+           resolve(null);
+        }
+      }, 100);
+    });
+  });
+}
+
+function toggleRecording(visionMode = false) {
+  console.log('toggleRecording called, visionMode:', visionMode, 'current isRecording:', isRecording)
+  
+  if (!isRecording) {
+    // Warm up Ollama in the background (fire and forget)
+    if (store.get('ollama_enabled') === true) {
+      const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434';
+      const ollamaModel = store.get('ollama_model') || 'qwen2.5:0.5b';
+      const url = `${ollamaUrl.trim().replace(/\/+$/, '')}/api/generate`;
+      
+      // We use dynamic import for node-fetch to ensure it works in Electron main process
+      import('node-fetch').then(nodeFetch => {
+        const localFetch = nodeFetch.default;
+        localFetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // Sending an empty prompt with keep_alive loads the model into RAM without generating text
+          body: JSON.stringify({ model: ollamaModel, prompt: '', keep_alive: '5m' })
+        }).then(() => console.log('Ollama warmup triggered successfully'))
+          .catch(e => console.log('Ollama warmup failed silently:', e.message));
+      }).catch(e => console.log('Could not load node-fetch for warmup:', e.message));
+    }
+
+    if (visionMode) {
+      captureScreen().then(async (dataUrl) => {
+        if (dataUrl) {
+          console.log('Running native macOS OCR for vision context...');
+          const ocrText = await performMacOCR(dataUrl);
+          if (ocrText && ocrText.length > 5) {
+            screenContext = ocrText;
+            console.log('OCR extracted text successfully.');
+          } else {
+            console.log('OCR extracted no meaningful text, falling back to pure image data.');
+            screenContext = dataUrl; // Fallback to sending raw image to Ollama if OCR fails
+          }
+        }
+      });
+    } else {
+      screenContext = null;
+    }
+
+    // Always attempt to capture selected text for better context
+    captureSelectedText().then(text => {
+      copilotContext = text;
+      // If we have selected text or we are in vision mode, treat this as a "Copilot/Instruction" task
+      isCopilotMode = !!text || visionMode;
+      console.log('Text context captured:', text ? text.substring(0, 50) + '...' : 'NONE', 'isCopilotMode:', isCopilotMode);
+    });
+  }
+
+  isRecording = !isRecording
+  console.log('Toggled isRecording to:', isRecording)
+  
+  // Show/hide recording window and update tray icon
+  if (isRecording) {
+    // Register Escape key to cancel recording
+    globalShortcut.register('Escape', () => {
+      handleCancelRecording()
+    })
+
+    // Hide main window when recording starts
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+      mainWindow.hide()
+    }
+    showRecordingWindow()
+    updateTrayIcon('recording')
+    // Notify recording window that recording has started
+    if (recordingWindow && recordingWindow.webContents) {
+      recordingWindow.webContents.send('recording-start', { isCopilot: isCopilotMode })
+    }
+
+    const screenEnabled = store.get('screen_context_enabled') === true;
+    const hasScreenContext = screenEnabled || isCopilotMode;
+    overlayWindows.forEach(win => {
+      if (!win.isDestroyed()) {
+        win.showInactive();
+        win.webContents.send('recording-started', { hasContext: hasScreenContext });
+      }
+    });
+  } else {
+    // Unregister Escape key
+    globalShortcut.unregister('Escape')
+
+    overlayWindows.forEach(win => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('recording-stopped');
+        setTimeout(() => {
+          if (!win.isDestroyed() && !isRecording) {
+            win.hide();
+          }
+        }, 350);
+      }
+    });
+
+    // Keep recording window visible, just change its state to processing
+    updateTrayIcon('processing') // Will change to idle after transcription completes
+    // Notify recording window to switch to processing mode
+    if (recordingWindow && recordingWindow.webContents) {
+      recordingWindow.webContents.send('recording-stop')
+      recordingWindow.webContents.send('show-processing')
+    }
+  }
+  
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+    mainWindow.webContents.send('record-toggle', isRecording)
+  }
+}
 
 function registerHotkey (hotkey) {
   try {
     // Remove any existing shortcut
     globalShortcut.unregisterAll()
+
+    // --- TTS Functionality Integration ---
+    if (hotkey !== TTS_HOTKEY) {
+      globalShortcut.register(TTS_HOTKEY, () => {
+        console.log('TTS Hotkey pressed')
+        captureSelectedText().then(text => {
+          if (text) {
+            console.log(`TTS: Speaking ${text.length} chars`);
+            ttsUtils.speak(text).catch(e => console.error('TTS Speak Error:', e));
+          } else {
+            console.warn('TTS: No text selected');
+          }
+        });
+      });
+      console.log('TTS Hotkey registered:', TTS_HOTKEY)
+    }
+
+    // --- Vision/Copilot Hotkey Integration ---
+    const visionHotkey = store.get('vision_hotkey') || 'CommandOrControl+Option+Shift+V';
+    if (hotkey !== visionHotkey && TTS_HOTKEY !== visionHotkey) {
+      globalShortcut.register(visionHotkey, () => {
+        console.log('Vision Hotkey pressed')
+        toggleRecording(true);
+      });
+      console.log('Vision Hotkey registered:', visionHotkey)
+    }
+
     if (!hotkey) {
       // empty hotkey: unregister and return success
       try { store.delete('hotkey') } catch (e) {}
@@ -404,56 +789,7 @@ function registerHotkey (hotkey) {
       return true
     }
     const ok = globalShortcut.register(hotkey, () => {
-      console.log('Hotkey pressed:', hotkey, 'current isRecording:', isRecording)
-      isRecording = !isRecording
-      console.log('Toggled isRecording to:', isRecording)
-      
-      // Show/hide recording window and update tray icon
-      if (isRecording) {
-        // Register Escape key to cancel recording
-        globalShortcut.register('Escape', () => {
-          handleCancelRecording()
-        })
-
-        // Hide main window when recording starts
-        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
-          mainWindow.hide()
-        }
-        showRecordingWindow()
-        updateTrayIcon('recording')
-        // Notify recording window that recording has started
-        if (recordingWindow && recordingWindow.webContents) {
-          recordingWindow.webContents.send('recording-start')
-        }
-      } else {
-        // Unregister Escape key
-        globalShortcut.unregister('Escape')
-
-        // Keep recording window visible, just change its state to processing
-        updateTrayIcon('processing') // Will change to idle after transcription completes
-        // Notify recording window to switch to processing mode
-        if (recordingWindow && recordingWindow.webContents) {
-          recordingWindow.webContents.send('recording-stop')
-          recordingWindow.webContents.send('show-processing')
-        }
-      }
-      
-      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-        mainWindow.webContents.send('record-toggle', isRecording)
-        console.log('Sent record-toggle event to renderer')
-        
-        // Ensure recording window is shown/hidden correctly
-        if (isRecording) {
-          showRecordingWindow()
-          // Note: 'recording-start' is already sent above, do not send it again here
-        } else {
-          // Note: 'recording-stop' and 'show-processing' are already sent above
-          // We don't want to hide it here because it needs to show processing state
-          // hideRecordingWindow() // Removed to allow processing state to show
-        }
-      } else {
-        console.warn('mainWindow not available to send record-toggle')
-      }
+      toggleRecording(false);
     })
     console.log(`Hotkey registration for '${hotkey}': ${ok ? 'SUCCESS' : 'FAILED'}`)
     return ok
@@ -463,17 +799,30 @@ function registerHotkey (hotkey) {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Hide from dock to prevent space switching when app is active
   if (process.platform === 'darwin') {
     app.dock.hide()
   }
   createWindow()
   createTray()
+  createOverlayWindows()
+
+  // Run cleanup on startup to remove old voice notes
+  // First, do a deep cleanup of everything from previous sessions
+  cleanupTempFiles(true);
+
+  // Run OpenClaw-style memory compaction
+  setTimeout(() => {
+    memoryManager.compactMemory(callOllama).catch(err => {
+      console.error('Startup memory compaction failed:', err);
+    });
+  }, 5000); // Wait 5s after startup to not block UI
 
   // register a simple global shortcut: Cmd+Shift+V to toggle recording
   // Get stored hotkey or default
-  const savedHotkey = store.get('hotkey') || process.env.HOTKEY || 'CommandOrControl+Shift+V'
+  let savedHotkey = store.get('hotkey') || process.env.HOTKEY || 'CommandOrControl+Shift+V'
+  
   console.log('Attempting to register hotkey:', savedHotkey)
   const ret = registerHotkey(savedHotkey)
   if (!ret) {
@@ -482,13 +831,46 @@ app.whenReady().then(() => {
     console.log('Global shortcut registered successfully:', savedHotkey)
   }
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+// Start Whisper Server for real-time streaming
+  const modelName = store.get('model') || 'ggml-small.en.bin'
+  const modelPath = getModelPath(modelName)
+  whisperServerManager.start(modelPath).catch(err => {
+    console.error('Failed to start Whisper Server:', err)
   })
+
+  // Background check/install for Piper + Voice Model
+  setTimeout(async () => {
+    logger.info('Starting background dependency check (Piper + Voice Model)...')
+    try {
+      if (!fs.existsSync(PIPER_PATH)) {
+        logger.info('Piper missing. Installing now...')
+        await dependencyManager.installPiper()
+      }
+      if (!fs.existsSync(VOICE_MODEL_PATH)) {
+        logger.info('Voice Model missing. Installing now...')
+        await dependencyManager.installVoiceModel()
+      }
+      logger.info('Background dependency check complete.')
+    } catch (err) {
+      logger.error('Background dependency check failed:', err)
+    }
+  }, 1000)
+})
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
 })
 
 app.on('will-quit', () => {
+  if (trayAnimationTimer) {
+    clearInterval(trayAnimationTimer)
+    trayAnimationTimer = null
+  }
   globalShortcut.unregisterAll()
+  ttsUtils.stop()
+  whisperServerManager.stop()
 })
 
 ipcMain.handle('app-version', () => app.getVersion())
@@ -508,21 +890,68 @@ ipcMain.handle('clear-logs', () => {
 
 ipcMain.handle('check-ollama', async () => {
   try {
+    let localFetch = fetch;
+    if (!localFetch) {
+      const nodeFetch = await import('node-fetch');
+      localFetch = nodeFetch.default;
+    }
+
     const ollamaUrl = store.get('ollama_url') || 'http://localhost:11434'
-    if (!fetch) {
+    const configuredModel = store.get('ollama_model') || 'qwen2.5:0.5b'
+
+    if (!localFetch) {
       return { installed: false, running: false, error: 'No fetch implementation available' }
     }
-    const response = await fetch(`${ollamaUrl}/api/tags`, { 
-      method: 'GET',
-      signal: AbortSignal.timeout(2000) // 2 second timeout
-    })
-    return { installed: true, running: response.ok }
+
+    // Try configured URL, then fallback to 127.0.0.1 if it's localhost
+    const candidates = [ollamaUrl];
+    if (ollamaUrl.includes('localhost') && !ollamaUrl.includes('127.0.0.1')) {
+       candidates.push(ollamaUrl.replace('localhost', '127.0.0.1'));
+    }
+
+    let lastError = null;
+    for (const url of candidates) {
+        try {
+            const response = await localFetch(`${url}/api/tags`, {
+              method: 'GET',
+            });
+
+            if (response.ok) {
+              const data = await response.json()
+              const models = data.models || []
+
+              const hasConfiguredModel = models.some(m => m.name.includes(configuredModel))
+              const hasVisionModel = models.some(m => 
+                m.name.includes('vision') || 
+                m.name.includes('llava') || 
+                m.name.includes('llama3.2') ||
+                m.name.includes('qwen') || 
+                m.name.includes('gemma') ||
+                m.name.includes('bakllava') ||
+                m.name.includes('moondream')
+              )
+
+              return { 
+                installed: true,
+                running: true, 
+                models: models.map(m => m.name),
+                hasConfiguredModel,
+                hasVisionModel,
+                configuredModel
+              }
+            }
+        } catch (e) {
+            lastError = e;
+        }
+    }
+    
+    console.error('Ollama check failed:', lastError);
+    return { installed: true, running: false }
   } catch (err) {
+    console.error('Ollama check exception:', err);
     return { installed: false, running: false, error: String(err) }
   }
-})
-
-// Dependency Management IPC
+})// Dependency Management IPC
 ipcMain.handle('check-dependencies', async () => {
   return await dependencyManager.checkDependencies()
 })
@@ -549,9 +978,44 @@ ipcMain.handle('download-dependency', async (event, type, param) => {
   }
 })
 
+ipcMain.handle('permissions-done', () => {
+  checkAndRouteWindow();
+})
+
+ipcMain.handle('get-permissions-status', () => {
+  if (process.platform !== 'darwin') return { mic: true, accessibility: true, screen: true };
+  return {
+    mic: systemPreferences.getMediaAccessStatus('microphone') === 'granted',
+    accessibility: systemPreferences.isTrustedAccessibilityClient(false),
+    screen: systemPreferences.getMediaAccessStatus('screen') === 'granted'
+  };
+})
+
+ipcMain.handle('request-mic-permission', async () => {
+  if (process.platform !== 'darwin') return true;
+  return await systemPreferences.askForMediaAccess('microphone');
+})
+
+ipcMain.handle('request-accessibility-permission', () => {
+  if (process.platform !== 'darwin') return true;
+  return systemPreferences.isTrustedAccessibilityClient(true);
+})
+
+ipcMain.handle('open-system-settings', (event, pane) => {
+  const panes = {
+    'microphone': 'Privacy_Microphone',
+    'accessibility': 'Privacy_Accessibility',
+    'screen': 'Privacy_ScreenCapture'
+  };
+  const target = panes[pane];
+  if (target) {
+    exec(`open "x-apple.systempreferences:com.apple.preference.security?${target}"`);
+  }
+})
+
 ipcMain.handle('finish-setup', () => {
   if (mainWindow) {
-    mainWindow.setSize(400, 300)
+    mainWindow.setSize(800, 600)
     mainWindow.center()
     mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
   }
@@ -564,7 +1028,7 @@ ipcMain.handle('get-available-models', async () => {
     
     // Use the defined MODELS from dependency-manager to return rich info
     for (const [key, info] of Object.entries(dependencyManager.MODELS)) {
-      const isInstalled = fs.existsSync(path.join(MODELS_DIR, info.filename))
+      const isInstalled = fs.existsSync(getModelPath(info.filename))
       modelsList.push({
         key: key, // e.g. 'tiny.en'
         filename: info.filename,
@@ -606,9 +1070,11 @@ ipcMain.handle('get-settings', async () => {
     ollama_url: store.get('ollama_url'),
     ollama_model: store.get('ollama_model'),
     ollama_enabled: store.get('ollama_enabled'),
+    enable_ai_caveat: store.get('enable_ai_caveat'),
     auto_paste: store.get('auto_paste') !== undefined ? store.get('auto_paste') : true, // Default to true if undefined
     ffmpeg_path: store.get('ffmpeg_path'),
     hotkey: store.get('hotkey'),
+    vision_hotkey: store.get('vision_hotkey'),
     model: store.get('model')
   }
 })
@@ -619,12 +1085,23 @@ ipcMain.handle('save-settings', async (event, settings) => {
   if (settings.ollama_url !== undefined) store.set('ollama_url', settings.ollama_url)
   if (settings.ollama_model !== undefined) store.set('ollama_model', settings.ollama_model)
   if (settings.ollama_enabled !== undefined) store.set('ollama_enabled', settings.ollama_enabled)
+  if (settings.enable_ai_caveat !== undefined) store.set('enable_ai_caveat', settings.enable_ai_caveat)
   if (settings.auto_paste !== undefined) store.set('auto_paste', settings.auto_paste)
   if (settings.ffmpeg_path !== undefined) store.set('ffmpeg_path', settings.ffmpeg_path)
+  
+  if (settings.vision_hotkey !== undefined) {
+    store.set('vision_hotkey', settings.vision_hotkey)
+  }
+  
   if (settings.hotkey !== undefined) {
     store.set('hotkey', settings.hotkey)
-    registerHotkey(settings.hotkey)
   }
+  
+  // Re-register hotkeys if either one changed
+  if (settings.hotkey !== undefined || settings.vision_hotkey !== undefined) {
+    registerHotkey(store.get('hotkey'))
+  }
+  
   if (settings.model !== undefined) store.set('model', settings.model)
   return true
 })
@@ -636,6 +1113,18 @@ async function handleCancelRecording() {
     isCancelled = true
     isRecording = false
     globalShortcut.unregister('Escape') // Unregister Escape shortcut
+    
+    overlayWindows.forEach(win => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('recording-stopped');
+        setTimeout(() => {
+          if (!win.isDestroyed() && !isRecording) {
+            win.hide();
+          }
+        }, 350);
+      }
+    });
+
     hideRecordingWindow()
     updateTrayIcon('idle')
     
@@ -663,6 +1152,54 @@ ipcMain.handle('cancel-recording', async () => {
 
 ipcMain.handle('is-recording', async () => {
   return isRecording
+})
+
+ipcMain.handle('get-streaming-transcript', async (event, uint8Array) => {
+  try {
+    if (!whisperServerManager.isRunning()) {
+      return { ok: false, error: 'Whisper server is not running' }
+    }
+
+    const buffer = Buffer.from(uint8Array)
+    const webmPath = path.join(os.tmpdir(), `streaming-${Date.now()}.webm`)
+    const wavPath = path.join(os.tmpdir(), `streaming-${Date.now()}.wav`)
+    
+    await fs.promises.writeFile(webmPath, buffer)
+    
+    const ffmpegCmd = await findFfmpeg()
+    if (!ffmpegCmd) return { ok: false, error: 'ffmpeg not found' }
+
+    // Convert to 16kHz mono WAV for whisper-server
+    await new Promise((resolve, reject) => {
+      exec(`"${ffmpegCmd}" -y -i "${webmPath}" -ar 16000 -ac 1 -sample_fmt s16 "${wavPath}"`, (err) => {
+        if (err) reject(err)
+        else resolve()
+      })
+    })
+
+    // Use curl to hit the local whisper-server (easiest way to handle multipart/form-data without extra dependencies)
+    const result = await new Promise((resolve) => {
+      const port = 8080
+      exec(`curl -s http://localhost:${port}/inference -F "file=@${wavPath}"`, (err, stdout) => {
+        if (err) return resolve({ ok: false, error: String(err) })
+        try {
+          const json = JSON.parse(stdout)
+          resolve({ ok: true, text: json.text })
+        } catch (e) {
+          resolve({ ok: false, error: 'Failed to parse whisper-server response' })
+        }
+      })
+    })
+
+    // Clean up temp files
+    fs.promises.unlink(webmPath).catch(() => {})
+    fs.promises.unlink(wavPath).catch(() => {})
+
+    return result
+  } catch (err) {
+    console.error('get-streaming-transcript error', err)
+    return { ok: false, error: String(err) }
+  }
 })
 
 // Cancel ongoing transcription and hide processing window
@@ -697,7 +1234,7 @@ ipcMain.handle('test-transcribe', async (event) => {
     
     if (!tpl) {
        const modelName = store.get('model') || 'ggml-small.en.bin'
-       const modelPath = path.join(MODELS_DIR, modelName)
+       const modelPath = getModelPath(modelName)
        tpl = `"${WHISPER_PATH}" -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -nt`
     }
 
@@ -816,8 +1353,12 @@ ipcMain.handle('paste-into-front', async (event, text) => {
         if (err) {
           // provide an actionable hint for the user
           const errMsg = (stderr || err.message || String(err)).toString()
-          console.error('osascript paste failed', errMsg)
-          resolve({ ok: false, error: 'Paste failed: ' + errMsg + '. If this is macOS, please grant Accessibility permission to Terminal or the app hosting this process (System Settings → Privacy & Security → Accessibility).' })
+          if (errMsg.includes('not allowed to send keystrokes')) {
+            console.warn('[INFO] Accessibility permission missing: cannot auto-paste via Cmd+V.');
+          } else {
+            console.error('osascript paste failed:', errMsg)
+          }
+          resolve({ ok: false, error: 'Paste failed. Please grant Accessibility permission in System Settings.' })
           return
         }
         resolve({ ok: true })
@@ -845,7 +1386,7 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
     // If the incoming buffer looks like WAV (RIFF), name it as .wav; otherwise use .webm
     const isWav = buffer.length >= 4 && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46
     const ext = isWav ? 'wav' : 'webm'
-    const filename = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.${ext}`)
+    const filename = path.join(os.tmpdir(), `astra-${Date.now()}.${ext}`)
     await fs.promises.writeFile(filename, buffer)
     console.log('Saved recording to:', filename)
     // If auto_transcribe is enabled in settings (defaults to true), run transcription now and return transcript
@@ -912,12 +1453,65 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           let polishTried = null
           let polishErrors = null
           
+          if ((isCopilotMode || (ollamaEnabled && screenContext)) && finalText) {
+            if (processingWindow && processingWindow.webContents) {
+              processingWindow.webContents.send('processing-progress', {
+                progress: 85,
+                status: 'finalizing',
+                subStatus: 'Processing with AI...'
+              })
+            }
+            
+            // Fetch semantic context first for smarter polishing
+            const currentEmbedding = await generateEmbedding(finalText);
+            const semanticContext = memoryManager.getSemanticContext(currentEmbedding);
+
+            const polished = await polishWithOllama(finalText, semanticContext)
+            if (polished && polished.ok) {
+              // Learn from the correction if text was selected
+              if (copilotContext) {
+                memoryManager.addCorrection(copilotContext, polished.text);
+              }
+              finalText = polished.text
+              polishUsed = polished.used
+              polishTried = polished.tried
+            } else {
+              polishError = polished ? polished.error : 'AI polish failed'
+              polishErrors = polished ? polished.errors : null
+              console.error('AI polishing failed:', polishError, polishErrors)
+            }
+          }
+          
           // Only attempt polishing if there is non-empty transcript text
             // Do not auto-polish with Ollama during save-recording auto-transcribe.
             // Keep polish optional and on-demand: use explicit 'polish-transcript' IPC.
           // Clean the final text (strip timestamps/caveat) before any further actions
-          finalText = cleanTranscript(finalText)
-          console.log('Final cleaned text:', finalText)
+          if (!isCopilotMode) {
+            finalText = cleanTranscript(finalText)
+          }
+          console.log('Final text:', finalText)
+
+          // Reset copilot mode for next run
+          isCopilotMode = false
+          copilotContext = null
+          const hadScreenContext = !!screenContext;
+          screenContext = null;
+
+          // Generate final embedding for storage
+          generateEmbedding(finalText).then(embedding => {
+            memoryManager.logTranscript(tx.text, finalText, embedding);
+          });
+
+          // Append caveat if enabled
+          if (store.get('enable_ai_caveat') !== false && finalText) {
+            let contextMsg = '';
+            if (hadScreenContext && !polishError) {
+              contextMsg = ' + Screen Context';
+            } else if (hadScreenContext && polishError) {
+              contextMsg = ' (Screen Context Failed)';
+            }
+            finalText = finalText.trim() + ` [Voice Note Transcribed Using AI${contextMsg}]`;
+          }
 
           // Send progress update for pasting
           if (processingWindow && processingWindow.webContents) {
@@ -938,7 +1532,13 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
               const as = 'tell application "System Events" to keystroke "v" using {command down}'
               pasteResult = await new Promise((resolve) => {
                 exec(`osascript -e ${JSON.stringify(as)}`, (err, stdout, stderr) => {
-                  if (err) return resolve({ ok: false, error: (stderr || err.message || String(err)).toString() })
+                  if (err) {
+                    const errMsg = (stderr || err.message || String(err)).toString();
+                    if (errMsg.includes('not allowed to send keystrokes')) {
+                      console.warn('[INFO] Accessibility permission missing: cannot auto-paste via Cmd+V.');
+                    }
+                    return resolve({ ok: false, error: errMsg })
+                  }
                   resolve({ ok: true })
                 })
               })
@@ -951,18 +1551,22 @@ ipcMain.handle('save-recording', async (event, uint8Array) => {
           hideRecordingWindow()
           updateTrayIcon('idle')
           
-          // Only show main window if paste failed or auto-paste is disabled
-          // If paste succeeded, stay in background to avoid desktop switching
-          const shouldShowMainWindow = !autoPaste || (pasteResult && !pasteResult.ok)
+          // Only show main window if auto-paste is explicitly disabled
+          // If auto-paste is enabled, stay in background to avoid desktop switching.
+          const shouldShowMainWindow = !autoPaste;
           
           if (shouldShowMainWindow && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
             mainWindow.show()
+            showTranscriptWindow(finalText)
           }
 
-          // If paste failed and we have text, show transcript window
-          if (autoPaste && finalText && pasteResult && !pasteResult.ok) {
-            console.log('Paste failed, showing transcript window')
-            showTranscriptWindow(finalText)
+          // If auto-paste was enabled but failed, notify the user silently instead of popping up windows
+          if (autoPaste && pasteResult && !pasteResult.ok) {
+            console.log('Paste failed, sending notification instead of breaking UX')
+            new Notification({
+              title: 'ASTRA: Paste Failed',
+              body: 'Text copied to clipboard. (Check Accessibility permissions for auto-paste)'
+            }).show()
           }
 
           return { 
@@ -1015,19 +1619,19 @@ ipcMain.handle('send-audio-chunk', async (event, uint8Array) => {
     // Heuristic: WAV files start with 'RIFF'
     const isWav = buffer.length >= 4 && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46
     if (isWav) {
-      const filename = path.join(os.tmpdir(), `voicehotkey-chunk-${Date.now()}.wav`)
+      const filename = path.join(os.tmpdir(), `astra-chunk-${Date.now()}.wav`)
       await fs.promises.writeFile(filename, buffer)
       liveMockState[senderId].chunkWavs.push(filename)
       const MAX_WAVS = 8
       if (liveMockState[senderId].chunkWavs.length > MAX_WAVS) liveMockState[senderId].chunkWavs.splice(0, liveMockState[senderId].chunkWavs.length - MAX_WAVS)
     } else {
       // fallback: write webm and try converting to wav
-      const filename = path.join(os.tmpdir(), `voicehotkey-chunk-${Date.now()}.webm`)
+      const filename = path.join(os.tmpdir(), `astra-chunk-${Date.now()}.webm`)
       await fs.promises.writeFile(filename, buffer)
       try {
         const ffmpegCmd = await findFfmpeg()
         if (ffmpegCmd) {
-          const wavPath = path.join(os.tmpdir(), `voicehotkey-chunk-${Date.now()}.wav`)
+          const wavPath = path.join(os.tmpdir(), `astra-chunk-${Date.now()}.wav`)
           await new Promise((resolve, reject) => {
             const cmd = `${JSON.stringify(ffmpegCmd)} -y -i ${JSON.stringify(filename)} -ar 16000 -ac 1 ${JSON.stringify(wavPath)}`
             exec(cmd, (err, stdout, stderr) => {
@@ -1085,7 +1689,7 @@ async function runRollingTranscription (senderId, sender) {
     const wavs = state.chunkWavs.slice(-take)
     if (wavs.length === 0) return
 
-    const listFile = path.join(os.tmpdir(), `voicehotkey-concat-${Date.now()}.txt`)
+    const listFile = path.join(os.tmpdir(), `astra-concat-${Date.now()}.txt`)
     // Only include wavs that still exist (avoid race conditions)
     const existing = []
     for (const p of wavs) {
@@ -1101,7 +1705,7 @@ async function runRollingTranscription (senderId, sender) {
     const listContents = existing.map(p => `file '${String(p).replace(/'/g, "'\\\''")}'`).join('\n')
     await fs.promises.writeFile(listFile, listContents)
 
-    const combinedPath = path.join(os.tmpdir(), `voicehotkey-rolling-${Date.now()}.wav`)
+    const combinedPath = path.join(os.tmpdir(), `astra-rolling-${Date.now()}.wav`)
     // concat and resample to 16k mono
     await new Promise((resolve, reject) => {
       // Use ffmpeg with a concat list file. Wrap paths properly.
@@ -1147,7 +1751,7 @@ ipcMain.handle('transcribe', async (event, webmPath, options = {}) => {
     // ensure ffmpeg exists
     const ffmpegCmd = 'ffmpeg'
     // create wav path
-    const wavPath = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.wav`)
+    const wavPath = path.join(os.tmpdir(), `astra-${Date.now()}.wav`)
     // delegate to shared helper
     const tx = await transcribeWebm(webmPath, options)
     return tx
@@ -1174,7 +1778,7 @@ async function transcribeWebm (webmPath, options = {}) {
   try {
     // find ffmpeg executable (bundled, user-configured, or system)
     const ffmpegCmd = await findFfmpeg()
-    const wavPath = path.join(os.tmpdir(), `voicehotkey-${Date.now()}.wav`)
+    const wavPath = path.join(os.tmpdir(), `astra-${Date.now()}.wav`)
     let finalWav = wavPath
     if (!ffmpegCmd) {
       return { ok: false, error: 'ffmpeg not found. Install ffmpeg (Homebrew: `brew install ffmpeg`) or bundle ffmpeg in the app.' }
@@ -1196,7 +1800,7 @@ async function transcribeWebm (webmPath, options = {}) {
     
     if (!tpl) {
        const modelName = store.get('model') || 'ggml-small.en.bin'
-       const modelPath = path.join(MODELS_DIR, modelName)
+       const modelPath = getModelPath(modelName)
        // Use absolute path for model to be safe
        tpl = `"${WHISPER_PATH}" -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -nt`
     }
@@ -1255,7 +1859,7 @@ async function transcribeWav (wavPath, options = {}) {
     
     if (!tpl) {
        const modelName = store.get('model') || 'ggml-small.en.bin'
-       const modelPath = path.join(MODELS_DIR, modelName)
+       const modelPath = getModelPath(modelName)
        // Use absolute path for model to be safe
        tpl = `"${WHISPER_PATH}" -m "${modelPath}" -f {wav} --language en --temperature 0 --best-of 5 --beam-size 5 --split-on-word --word-thold 0.6 -nt`
     }
@@ -1271,7 +1875,7 @@ async function transcribeWav (wavPath, options = {}) {
       const ffmpegCmd = await findFfmpeg()
       console.log('FFmpeg command:', ffmpegCmd)
       if (ffmpegCmd) {
-        const trimmed = path.join(os.tmpdir(), `voicehotkey-trimmed-${Date.now()}.wav`)
+        const trimmed = path.join(os.tmpdir(), `astra-trimmed-${Date.now()}.wav`)
         // Resample to 16kHz mono for Whisper.
         // Removed silenceremove filter as it was truncating the start of speech.
         await new Promise((resolve, reject) => {
@@ -1323,33 +1927,114 @@ async function transcribeWav (wavPath, options = {}) {
   }
 }
 
-// helper: polish transcript text using Ollama API
-async function polishWithOllama (text) {
+// Generic helper to call Ollama generate API
+async function callOllama(prompt) {
   try {
-    if (!fetch) {
-      // If fetch couldn't be resolved at startup, surface a clearer message and
-      // avoid throwing the raw import failure. The caller will receive a
-      // structured error so the UI can show a helpful message.
-      console.error('polishWithOllama: no fetch implementation available in main process')
-      throw new Error('fetch not available in the main process; Ollama polishing is disabled. Make sure node-fetch or undici is packaged, or run a newer Electron with global fetch support.')
+    let localFetch = fetch;
+    if (!localFetch) {
+      const nodeFetch = await import('node-fetch');
+      localFetch = nodeFetch.default;
     }
 
     const configuredUrl = store.get('ollama_url') || 'http://localhost:11434'
-    const ollamaModel = store.get('ollama_model') || 'llama3.2'
-    // Instruct Ollama to both polish and remove unwanted artifacts like
-    // timestamps and the common 'I made the following changes' caveat, and
-    // to return the result as a single paragraph.
-  const prompt = `Please perform the following on the transcript below:
-  1) Remove any timestamps or timecodes (examples: "00:00:00", "00:00:00.000", "00:00:00 --> 00:00:16.500", or any bracketed timecodes).
-  2) Remove any editorial caveat or checklist that begins with phrases like "I made the following changes" and any bullet/list that follows it.
-  3) Fix grammar, punctuation, and formatting while preserving the original meaning.
-  4) Return the cleaned transcript as a single paragraph with normalized whitespace.
+    const ollamaModel = store.get('ollama_model') || 'qwen2.5:0.5b'
+    
+    const url = `${configuredUrl.trim().replace(/\/+$/, '')}/api/generate`
+    const response = await localFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: ollamaModel, prompt, stream: false }),
+    })
+    
+    if (response.ok) {
+      const data = await response.json()
+      return { ok: true, text: data.response }
+    }
+    return { ok: false, error: `HTTP ${response.status}` }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+}
 
-  IMPORTANT: Do NOT include any heading, label, or introductory phrase such as "Here is the cleaned transcript:" — return only the cleaned paragraph.
+// helper: polish transcript text using Ollama API
+async function polishWithOllama (text, semanticContext = "") {
+  try {
+    let localFetch = fetch;
+    if (!localFetch) {
+      const nodeFetch = await import('node-fetch');
+      localFetch = nodeFetch.default;
+    }
+    if (!localFetch) {
+      console.error('polishWithOllama: no fetch implementation available in main process')
+      throw new Error('fetch not available in the main process; Ollama polishing is disabled.')
+    }
 
-  Transcript:
+    const configuredUrl = store.get('ollama_url') || 'http://localhost:11434'
+    const ollamaModel = store.get('ollama_model') || 'qwen2.5:0.5b'
+    const memoryContext = memoryManager.getMemoryContext();
+    
+    let prompt = '';
+    
+    // Check if screenContext is actual OCR text or a fallback image dataURL
+    const isOCRText = screenContext && !screenContext.startsWith('data:image/');
+    const screenPromptString = isOCRText ? `\nTEXT VISIBLE ON THE USER'S SCREEN (USE THIS TO FIX JARGON/APP NAMES):\n"""\n${screenContext}\n"""\n` : (screenContext ? 'A screenshot of the user\'s screen is provided for visual context. Use it to correctly identify jargon, app names, or UI elements mentioned in the instruction.' : '');
 
-  ${text}`
+    if (isCopilotMode) {
+      if (copilotContext) {
+        prompt = `You are an AI writing assistant.
+Your task is to edit, rewrite, or fulfill the following USER INSTRUCTION based on the provided TEXT.
+${screenPromptString}
+
+${memoryContext}
+${semanticContext}
+
+TEXT:
+"""
+${copilotContext}
+"""
+
+USER INSTRUCTION:
+"""
+${text}
+"""
+
+IMPORTANT:
+1) Return ONLY the modified text.
+2) Do NOT include any introductory phrases like "Here is the rewritten text:".
+3) Do NOT include any caveats or explanations.
+4) Maintain the same format (e.g. if the input is code, return code; if it is an email, return an email).`;
+      } else {
+        prompt = `You are an AI writing assistant.
+The user has provided a voice instruction, but NO text was selected. 
+${screenPromptString}
+
+${memoryContext}
+${semanticContext}
+
+USER INSTRUCTION:
+"""
+${text}
+"""
+
+TASK:
+1) Fulfill the user's instruction. If they asked to "write a React component", write it. If they asked a question, answer it concisely.
+2) Return ONLY the result.
+3) Do NOT include any introductory phrases or caveats.`;
+      }
+    } else {
+      prompt = `TRANSCRIPT CLEANUP TASK:
+- Remove all timestamps, timecodes, and editorial notes
+- Fix grammar, spelling, punctuation, and capitalization  
+- Make it readable and professional
+- Output ONLY the cleaned text, no explanations
+
+${screenPromptString ? `SCREEN CONTEXT (use to fix jargon/app names): ${screenPromptString}` : ''}
+${memoryContext}
+${semanticContext}
+
+CLEANED TRANSCRIPT:
+${text}`;
+    }
 
     // Build an ordered list of candidate base URLs to try.
     // If the configured URL uses localhost, add an explicit 127.0.0.1 fallback.
@@ -1370,19 +2055,122 @@ async function polishWithOllama (text) {
     for (const base of candidates) {
       try {
         const url = `${base.replace(/\/$/, '')}/api/generate`
-        const response = await fetch(url, {
+        
+        const body = { model: ollamaModel, prompt, stream: true };
+        
+        // Only attach images array if it's a fallback base64 image, NOT if it's OCR text
+        if (screenContext && !isOCRText) {
+          body.images = [screenContext.split(',')[1] || screenContext];
+        }
+
+        // Add a 60 second timeout so the app doesn't hang infinitely if Ollama is stuck
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+        const response = await localFetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: ollamaModel, prompt, stream: false }),
-          // small timeout not directly supported by node-fetch v3; rely on default
-        })
+          body: JSON.stringify(body),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
         if (!response.ok) {
           const txt = await response.text().catch(() => '')
           errors[base] = `HTTP ${response.status} ${response.statusText} ${txt}`
           continue
         }
-        const data = await response.json()
-        const polishedText = data.response || text
+
+        let polishedText = '';
+        let streamSeq = 0;
+        const handleStreamLine = (line) => {
+          if (!line.trim()) return;
+          const parsed = JSON.parse(line);
+          if (parsed.response) {
+            polishedText += parsed.response;
+            streamSeq++;
+            // Send partial text to both potential active windows
+            if (transcriptWindow && transcriptWindow.webContents) {
+              transcriptWindow.webContents.send('transcript-data', polishedText);
+            }
+            if (mainWindow && mainWindow.webContents) {
+              mainWindow.webContents.send('live-patch', { seq: streamSeq, text: polishedText });
+            }
+          }
+        };
+        
+        // Ensure processing window is visible and showing transcript UI
+        if (processingWindow && processingWindow.webContents) {
+            processingWindow.webContents.send('processing-progress', {
+                progress: 90,
+                status: 'finalizing',
+                subStatus: 'AI is streaming response...'
+            });
+        }
+        
+        // Process Ollama's newline-delimited JSON streaming response. Depending on
+        // the fetch implementation this may be a Node stream or a Web ReadableStream.
+        if (response.body && typeof response.body.on === 'function') {
+           // Node.js stream API (from node-fetch)
+           await new Promise((resolve, reject) => {
+               let buffered = '';
+               response.body.on('data', (chunk) => {
+                   buffered += chunk.toString();
+                   const lines = buffered.split('\n');
+                   buffered = lines.pop() || '';
+                   for (const line of lines) {
+                       try {
+                           handleStreamLine(line);
+                       } catch (e) {
+                           console.warn('Error parsing JSON from stream:', e);
+                       }
+                   }
+               });
+               response.body.on('end', () => {
+                   if (buffered.trim()) {
+                       try {
+                           handleStreamLine(buffered);
+                       } catch (e) {
+                           console.warn('Error parsing JSON from stream:', e);
+                       }
+                   }
+                   resolve();
+               });
+               response.body.on('error', (err) => reject(err));
+           });
+        } else if (response.body && typeof response.body.getReader === 'function') {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffered = '';
+            while (true) {
+                const { value, done } = await reader.read();
+                buffered += decoder.decode(value || new Uint8Array(), { stream: !done });
+                const lines = buffered.split('\n');
+                buffered = lines.pop() || '';
+                for (const line of lines) {
+                    try {
+                        handleStreamLine(line);
+                    } catch (e) {
+                        console.warn('Error parsing JSON from stream:', e);
+                    }
+                }
+                if (done) break;
+            }
+            if (buffered.trim()) {
+                try {
+                    handleStreamLine(buffered);
+                } catch (e) {
+                    console.warn('Error parsing JSON from stream:', e);
+                }
+            }
+        } else {
+            // Fallback for environments where body isn't an EventEmitter
+            const data = await response.json();
+            polishedText = data.response || text;
+        }
+
+        // Hide processing window once streaming is done
+        hideProcessingWindow();
         return { ok: true, text: polishedText, used: base, tried: candidates }
       } catch (err) {
         // record the error and try next candidate
@@ -1397,6 +2185,51 @@ async function polishWithOllama (text) {
     console.error('polishWithOllama error', err)
     return { ok: false, error: String(err) }
   }
+}
+
+// helper: generate embedding for text using Ollama
+async function generateEmbedding (text) {
+  try {
+    let localFetch = fetch;
+    if (!localFetch) {
+      const nodeFetch = await import('node-fetch');
+      localFetch = nodeFetch.default;
+    }
+
+    if (!text || !localFetch) return null;
+
+    const configuredUrl = store.get('ollama_url') || 'http://localhost:11434'
+    const ollamaModel = store.get('ollama_model') || 'qwen2.5:0.5b' // Most modern models support embedding
+
+    const candidates = [configuredUrl];
+    if (configuredUrl.includes('localhost') && !configuredUrl.includes('127.0.0.1')) {
+       candidates.push(configuredUrl.replace('localhost', '127.0.0.1'));
+    }
+
+    for (const base of candidates) {
+        try {
+            const url = `${base.trim().replace(/\/+$/, '')}/api/embeddings`
+            const response = await localFetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ model: ollamaModel, prompt: text }),
+            })
+
+            if (response.ok) {
+              const data = await response.json()
+              if (data.embedding) {
+                // Convert float array to Buffer for storage in SQLite BLOB
+                return Buffer.from(new Float32Array(data.embedding).buffer);
+              }
+            }
+        } catch (e) {
+            // Ignore and try next candidate
+        }
+    }
+  } catch (err) {
+    console.error('generateEmbedding error', err)
+  }
+  return null
 }
 
 // helper: clean transcript text by removing common timestamp lines, any

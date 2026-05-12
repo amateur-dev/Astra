@@ -39,37 +39,28 @@ function getTranscriptElement (createIfMissing) {
     // heading
     const h3 = document.createElement('h3')
     h3.textContent = 'Transcript'
-    h3.style.marginTop = '12px'
     // preformatted transcript area
     const pre = document.createElement('pre')
     pre.id = 'transcript'
-    pre.style.whiteSpace = 'pre-wrap'
-    pre.style.background = '#f6f6f6'
-    pre.style.padding = '8px'
-    pre.style.borderRadius = '4px'
-    pre.style.display = 'block'
     // toolbar (Copy button) below transcript
     const toolbar = document.createElement('div')
-    toolbar.style.display = 'flex'
-    toolbar.style.justifyContent = 'flex-start'
-    toolbar.style.gap = '8px'
-    toolbar.style.marginTop = '8px'
+    toolbar.className = 'toolbar'
     const copyBtn = document.createElement('button')
     copyBtn.id = 'copyBtn'
-    copyBtn.className = 'btn'
+    copyBtn.className = 'btn-small'
     copyBtn.textContent = 'Copy'
     toolbar.appendChild(copyBtn)
     // Polish (Ollama) button - hidden by default (enabled if user has Ollama configured)
     const polishBtn = document.createElement('button')
     polishBtn.id = 'polishBtn'
-    polishBtn.className = 'btn'
+    polishBtn.className = 'btn-small'
     polishBtn.textContent = 'Polish (Ollama)'
     polishBtn.style.display = 'none'
     toolbar.appendChild(polishBtn)
     // Toggle: Raw / Polished
     const toggleBtn = document.createElement('button')
     toggleBtn.id = 'toggleRawBtn'
-    toggleBtn.className = 'btn'
+    toggleBtn.className = 'btn-small'
     toggleBtn.textContent = 'Show Raw'
     toggleBtn.style.display = 'none'
     toolbar.appendChild(toggleBtn)
@@ -374,7 +365,7 @@ async function startRecording () {
     }
     recording = true
     status.textContent = 'Recording...'
-    btn.textContent = 'Stop Recording'
+    btn.classList.add('recording')
   } catch (err) {
     status.textContent = 'Microphone access denied or unavailable'
     console.error('startRecording error', err)
@@ -385,7 +376,7 @@ async function stopRecording () {
   // Update UI immediately
   recording = false
   status.textContent = 'Stopping...'
-  btn.textContent = 'Start Recording'
+  btn.classList.remove('recording')
   
   // Stop the media stream tracks first
   try {
@@ -737,7 +728,7 @@ window.electronAPI.onRecordToggle(async (state) => {
     clearBtn.addEventListener('click', () => {
       removeTranscript()
       // ensure record button is enabled and text resets
-      try { btn.disabled = false; btn.textContent = 'Start Recording'; } catch (e) {}
+      try { btn.disabled = false; btn.classList.remove('recording'); } catch (e) {}
     })
   }
 })()
@@ -773,27 +764,30 @@ window.electronAPI.onRecordToggle(async (state) => {
       const tpl = r && r.transcribe_cmd ? r.transcribe_cmd : ''
       const auto = r && r.auto_transcribe === true
       const ollamaUrl = r && r.ollama_url ? r.ollama_url : 'http://localhost:11434'
-      const ollamaModel = r && r.ollama_model ? r.ollama_model : 'llama3.2'
+      const ollamaModel = r && r.ollama_model ? r.ollama_model : 'qwen2.5:0.5b'
   const ollamaEnabled = r && r.ollama_enabled === true
+  const enableAiCaveat = (r && r.enable_ai_caveat !== undefined) ? r.enable_ai_caveat : true
   const autoPaste = (r && r.auto_paste !== undefined) ? r.auto_paste : true // Default to true if undefined
   const ffmpegPath = r && r.ffmpeg_path ? r.ffmpeg_path : ''
   const hotkey = r && r.hotkey ? r.hotkey : (process.env.HOTKEY || 'CommandOrControl+Shift+V')
   const suggestedCmd = r && r.suggested_transcribe_cmd ? r.suggested_transcribe_cmd : ''
-      
+
       // try to split into binary and model if possible
       const whisperBin = document.getElementById('whisperBin')
       const modelPath = document.getElementById('modelPath')
       const autoCheckbox = document.getElementById('autoTranscribe')
       const ollamaEnabledCheckbox = document.getElementById('ollamaEnabled')
+      const enableAiCaveatCheckbox = document.getElementById('enableAiCaveat')
       const ollamaUrlInput = document.getElementById('ollamaUrl')
-  const ollamaModelInput = document.getElementById('ollamaModel')
-  const autoPasteCheckbox = document.getElementById('autoPaste')
-      
-  if (autoCheckbox) autoCheckbox.checked = !!auto
-  if (ollamaEnabledCheckbox) ollamaEnabledCheckbox.checked = !!ollamaEnabled
-  if (ollamaUrlInput) ollamaUrlInput.value = ollamaUrl
-  if (ollamaModelInput) ollamaModelInput.value = ollamaModel
-  if (autoPasteCheckbox) autoPasteCheckbox.checked = !!autoPaste
+      const ollamaModelInput = document.getElementById('ollamaModel')
+      const autoPasteCheckbox = document.getElementById('autoPaste')
+
+      if (autoCheckbox) autoCheckbox.checked = !!auto
+      if (ollamaEnabledCheckbox) ollamaEnabledCheckbox.checked = !!ollamaEnabled
+      if (enableAiCaveatCheckbox) enableAiCaveatCheckbox.checked = !!enableAiCaveat
+      if (ollamaUrlInput) ollamaUrlInput.value = ollamaUrl
+      if (ollamaModelInput) ollamaModelInput.value = ollamaModel
+      if (autoPasteCheckbox) autoPasteCheckbox.checked = !!autoPaste      
       
       if (tpl) {
         // crude parsing: first token is binary, -m <path> for model
@@ -801,14 +795,18 @@ window.electronAPI.onRecordToggle(async (state) => {
         if (binMatch && whisperBin) whisperBin.value = binMatch[1]
         const mMatch = tpl.match(/-m\s+(?:"|')?([^"'\s]+)(?:"|')?/) 
         if (mMatch && modelPath) modelPath.value = mMatch[1]
+      }
+      
       // ffmpeg path
       const ffmpegInput = document.getElementById('ffmpegPath')
       if (ffmpegInput) ffmpegInput.value = ffmpegPath
+      
       const hotkeyInput = document.getElementById('hotkeyInput')
       if (hotkeyInput) hotkeyInput.value = hotkey
-      const hotkeyLabel = document.getElementById('hotkeyLabel')
-      if (hotkeyLabel) hotkeyLabel.textContent = `Hotkey: ${hotkey || 'Unset'}`
-      }
+      
+      const visionHotkeyInput = document.getElementById('visionHotkeyInput')
+      const visionHotkey = r && r.vision_hotkey ? r.vision_hotkey : 'CommandOrControl+Option+Shift+V'
+      if (visionHotkeyInput) visionHotkeyInput.value = visionHotkey
       // suggested command display & UI wiring
       const suggestedInput = document.getElementById('suggestedCmd')
       const useSuggestedBtn = document.getElementById('useSuggestedBtn')
@@ -845,23 +843,36 @@ window.electronAPI.onRecordToggle(async (state) => {
     const hotkeyValue = document.getElementById('hotkeyInput').value.trim()
     const autoCheckbox = document.getElementById('autoTranscribe')
     const auto = autoCheckbox ? !!autoCheckbox.checked : false
-      const polishWhile = document.getElementById('polishWhileTranscribe')
-      const polishWhileValue = polishWhile ? !!polishWhile.checked : false
+    const polishWhile = document.getElementById('polishWhileTranscribe')
+    const polishWhileValue = polishWhile ? !!polishWhile.checked : false
     const ollamaEnabledCheckbox = document.getElementById('ollamaEnabled')
     const ollamaEnabled = ollamaEnabledCheckbox ? !!ollamaEnabledCheckbox.checked : false
+    const enableAiCaveatCheckbox = document.getElementById('enableAiCaveat')
+    const enableAiCaveat = enableAiCaveatCheckbox ? !!enableAiCaveatCheckbox.checked : true
     const ollamaUrl = document.getElementById('ollamaUrl').value.trim() || 'http://localhost:11434'
-  const ollamaModel = document.getElementById('ollamaModel').value.trim() || 'llama3.2'
-  const autoPaste = document.getElementById('autoPaste') ? !!document.getElementById('autoPaste').checked : false
-    
-    if (!whisperBin || !modelPath) {
-      document.getElementById('settingsResult').textContent = 'Please provide both binary and model path.'
-      return
+    const ollamaModel = document.getElementById('ollamaModel').value.trim() || 'qwen2.5:0.5b'
+    const autoPaste = document.getElementById('autoPaste') ? !!document.getElementById('autoPaste').checked : false
+    const visionHotkeyValue = document.getElementById('visionHotkeyInput') ? document.getElementById('visionHotkeyInput').value.trim() : '';
+
+    // Build the transcribe command template if legacy fields are present, else fallback
+    let tpl = undefined;
+    if (whisperBin && modelPath) {
+      tpl = `${whisperBin} -m ${modelPath} -f {wav}`
     }
-    // Build the transcribe command template
-    const tpl = `${whisperBin} -m ${modelPath} -f {wav}`
+
     // include hotkey in saved settings if present
-    const payload = { transcribe_cmd: tpl, auto_transcribe: auto, ffmpeg_path: ffmpegPath, ollama_enabled: ollamaEnabled, ollama_url: ollamaUrl, ollama_model: ollamaModel, auto_paste: autoPaste }
-    if (hotkeyValue) payload.hotkey = hotkeyValue
+    const payload = { 
+      auto_transcribe: auto, 
+      ffmpeg_path: ffmpegPath, 
+      ollama_enabled: ollamaEnabled, 
+      enable_ai_caveat: enableAiCaveat,
+      ollama_url: ollamaUrl, 
+      ollama_model: ollamaModel, 
+      auto_paste: autoPaste 
+    };
+    if (tpl !== undefined) payload.transcribe_cmd = tpl;
+    if (hotkeyValue) payload.hotkey = hotkeyValue;
+    if (visionHotkeyValue) payload.vision_hotkey = visionHotkeyValue;
     const payloadWithPolish = Object.assign({}, payload, { polish_while_transcribe: polishWhileValue })
     const r = await window.electronAPI.saveSettings(payloadWithPolish)
     if (r && r.ok) {
@@ -897,6 +908,23 @@ window.electronAPI.onRecordToggle(async (state) => {
     const testBtn = document.getElementById('testSettingsBtn')
     if (saveBtn) saveBtn.addEventListener('click', saveSettings)
     if (testBtn) testBtn.addEventListener('click', testSettings)
+    
+    // Auto-save settings when checkboxes or inputs are changed in the new UI
+    const autoSaveElements = [
+      'autoPaste', 'ollamaEnabled', 'enableAiCaveat',
+      'ollamaUrl', 'ollamaModel', 'hotkeyInput'
+    ];
+    autoSaveElements.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('change', saveSettings);
+        if (el.tagName === 'INPUT' && el.type === 'text') {
+          // Also save on blur for text inputs
+          el.addEventListener('blur', saveSettings);
+        }
+      }
+    });
+
     loadSettings()
         // Load settings
     loadSettings()
@@ -1040,10 +1068,11 @@ window.electronAPI.onRecordToggle(async (state) => {
       }
     }
 
-    // hotkey set button wiring
-    const setHotkeyBtn = document.getElementById('setHotkeyBtn')
-    if (setHotkeyBtn) {
-      setHotkeyBtn.addEventListener('click', async () => {
+    // generic hotkey set logic
+    function attachHotkeyListener(btnId, inputId, isVisionMode = false) {
+      const btn = document.getElementById(btnId);
+      if (!btn) return;
+      btn.addEventListener('click', async () => {
         // Show prompt overlay briefly to capture the next key combination
         const overlay = document.createElement('div')
         overlay.style.position = 'fixed'
@@ -1105,7 +1134,7 @@ window.electronAPI.onRecordToggle(async (state) => {
              if (ev.ctrlKey) parts.push('CommandOrControl')
              if (ev.metaKey) parts.push('Super')
           }
-          if (ev.altKey) parts.push('Alt')
+          if (ev.altKey) parts.push('Option')
           if (ev.shiftKey) parts.push('Shift')
           
           let keyPart = ''
@@ -1149,14 +1178,11 @@ window.electronAPI.onRecordToggle(async (state) => {
           setTimeout(async () => {
             overlay && overlay.parentNode && overlay.parentNode.removeChild(overlay)
             
-            // attempt to set hotkey via IPC
-            const res = await window.electronAPI.setHotkey(hk)
-            if (res && res.ok) {
-              const hotkeyInput = document.getElementById('hotkeyInput')
-              if (hotkeyInput) hotkeyInput.value = res.hotkey
-              // alert('Hotkey set: ' + hk)
-            } else {
-              alert('Unable to register hotkey: ' + (res && res.error ? res.error : 'unknown'))
+            // set it in the input and trigger a save
+            const input = document.getElementById(inputId)
+            if (input) {
+                input.value = hk
+                await saveSettings()
             }
           }, 200)
         }
@@ -1171,6 +1197,10 @@ window.electronAPI.onRecordToggle(async (state) => {
         document.addEventListener('keydown', handler, true)
       })
     }
+
+    attachHotkeyListener('setHotkeyBtn', 'hotkeyInput', false)
+    attachHotkeyListener('setVisionHotkeyBtn', 'visionHotkeyInput', true)
+    
     // clear hotkey
     const clearHotkeyBtn = document.getElementById('clearHotkeyBtn')
     if (clearHotkeyBtn) {

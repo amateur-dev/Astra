@@ -1,140 +1,199 @@
-# Voice Hotkey (macOS)
+# ASTRA 🎤✨
 
-A powerful, local-first voice dictation tool for macOS. Press a hotkey, speak, and have your text typed directly into any application. Powered by [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) for privacy and speed, with optional LLM polishing via [Ollama](https://ollama.ai).
+**Your personal voice assistant that types for you — no internet required.**
 
-![Status](https://img.shields.io/badge/status-beta-blue)
-![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
+Press a hotkey, speak, and watch your words appear in any app. It's like magic, but it's just really good technology.
+
+![macOS](https://img.shields.io/badge/macOS-hello%20beautiful-white)
+![Status](https://img.shields.io/badge/status-live-brightgreen)
 ![Downloads](https://img.shields.io/github/downloads/amateur-dev/local-hotkey-voice-mac-app/total?color=brightgreen)
 
-> **[Download the latest version for macOS](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases/latest)**
+> **[⬇️ Download for macOS](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases/latest)**
 
-## Features
+<div align="center">
+  <img src="docs/assets/astra-main-ui.png" width="400" alt="ASTRA Main UI" />
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/assets/astra-settings-ui.png" width="400" alt="ASTRA Settings UI" />
+</div>
 
--   **Global Hotkey**: Toggle recording from anywhere (Default: `Cmd+Shift+V`).
--   **Floating Overlay**: Minimal, non-intrusive recording UI with waveform visualization.
--   **Local Transcription**: Uses Whisper.cpp for offline, private, and fast speech-to-text.
--   **Smart Polishing (Optional)**: Use Ollama (Llama 3, etc.) to fix grammar, punctuation, and formatting automatically.
--   **Auto-Paste**: Automatically types the transcribed text into your active application.
--   **System Integration**:
-    -   Does not steal focus from your active window.
-    -   Dynamic menu bar icons (Idle / Recording / Processing).
-    -   "Screen Saver" window level ensures visibility over fullscreen apps.
+---
 
-## Prerequisites
+## What's This Thing Do?
 
-**For Users (DMG App):**
--   **macOS** (Apple Silicon or Intel).
--   That's it! The app comes bundled with everything it needs (Node.js, FFmpeg, Whisper).
--   *Note: On the first run, the app will ask to download a speech model (approx. 400MB) optimized for your needs.*
+- **Two Hotkeys, Two Superpowers:**
+  - `Cmd+Shift+V` → Quick voice-to-text (super fast ⚡)
+  - `Cmd+Shift+O` → Voice + screenshot OCR (context-aware, catches UI text, app names, buttons, etc.)
+- **Smart Text Fixer** → Auto-corrects grammar & punctuation using a tiny local AI model (0.5s, not 15s)
+- **Native OCR** → Apple Vision Framework reads your screen (zero extra RAM, zero cloud)
+- **Offline & Private** → Everything happens on your Mac. Your voice never leaves your computer.
+- **Auto-Paste** → Types the transcribed text directly into whatever app you're using
+- **Floating UI** → Minimal recording window that plays nice with fullscreen apps
 
-**For Developers (Source Code):**
-If you want to build the app from source, you will need:
-1.  **Node.js** (v18+)
-2.  **FFmpeg**: `brew install ffmpeg`
-3.  **Whisper.cpp**: `whisper-cli` binary in your PATH.
+---
 
-## Installation & Setup
+## Quick Start
 
-### Option A: Download App (Recommended)
+### 1️⃣ Download & Install
 
-1.  **Download**: Go to the [Releases Page](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases) and download the `.dmg` file for your Mac:
-    -   **Apple Silicon (M1/M2/M3)**: Download `voice-hotkey-electron-x.x.x-arm64.dmg`
-    -   **Intel Mac**: Download `voice-hotkey-electron-x.x.x.dmg` (or `x64`)
+1. Go to **[Releases](https://github.com/amateur-dev/local-hotkey-voice-mac-app/releases)** and grab:
+   - **Apple Silicon Mac** (M1/M2/M3/M4): `ASTRA-x.x.x-arm64.dmg`
+   - **Intel Mac**: `ASTRA-x.x.x.dmg`
+2. Drag to **Applications** folder
+3. **First time? macOS may block the app** because this project is open source and not Apple-notarized. To open it:
+   - Try right-clicking **ASTRA** in Applications and choose **Open**
+   - If macOS still blocks it, go to **System Settings → Privacy & Security**
+   - Scroll to **Security** and click **Open Anyway** for ASTRA
+   - Launch ASTRA again
 
-2.  **Install**: Open the downloaded `.dmg` file and drag the app icon into the **Applications** folder.
+### 2️⃣ First Launch
 
-    > **Note on Security Warning**:
-    > Since this app is not signed with a paid Apple Developer ID ($99/year), macOS will show a warning saying it "cannot be opened because the developer cannot be verified" or "it is from an unidentified developer". **This is normal for open-source apps.**
+On first run, the app will:
+- Ask permission for microphone 🎙️
+- Ask permission for Accessibility so it can paste text and read selected text
+- Download a speech model (~400MB, one-time)
+- Optionally install Ollama for text polishing (we'll cover this below)
 
-3.  **First Launch (Bypassing Security)**:
-    1.  Double-click the app to open it. You will see the warning. Click **Done** or **Cancel**.
-        
-        ![Security Warning](docs/images/security-warning.png)
+### About macOS Warnings
 
-    2.  Open **System Settings** -> **Privacy & Security**.
-    3.  Scroll down to the "Security" section. You will see a message: *"voice-hotkey-electron was blocked from use because it is not from an identified developer."*
-    4.  Click **Open Anyway**.
+ASTRA's downloadable builds are currently ad-hoc signed, not Apple-notarized. This means macOS may show a warning on first launch. The source code is public, and technical users can build it themselves if they prefer.
 
-        ![Open Anyway Fix](docs/images/security-fix.png)
+To verify a downloaded DMG, compare its SHA256 checksum with the checksums published in `RELEASE_CHECKSUMS.txt`:
 
-    5.  A final popup will appear. Click **Open**.
-    6.  *(You only need to do this once).*
+```bash
+shasum -a 256 ASTRA-2.0.0-arm64.dmg
+```
 
-4.  **Setup Wizard**:
-    -   The app will launch and show the "Welcome" screen.
-    -   **System Components**: You should see green "Installed" badges for FFmpeg and Whisper (they are bundled with the app!).
-    -   **Select Model**: Choose a speech model (e.g., "Small") and click **Download & Install**.
-    -   Once finished, the app is ready to use!
+### 3️⃣ Start Using
 
-### Option B: Build from Source
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/amateur-dev/local-hotkey-voice-mac-app.git
-    cd local-hotkey-voice-mac-app
-    ```
+| What You Want | Press | What Happens |
+|---------------|-------|--------------|
+| **Quick voice note** | `Cmd+Shift+V` | Speak → Stop → Text appears in your app |
+| **Voice + screen context** | `Cmd+Shift+O` | Speak → Screenshot → OCR context → Text appears |
 
-2.  **Install dependencies**:
-    ```bash
-    npm install
-    ```
+> **Tip:** Press `Escape` during recording to cancel.
 
-3.  **Configure Binaries**:
-    -   The app looks for `whisper-cli` in your PATH or common locations (`~/whisper.cpp/build/bin/whisper-cli`, etc.).
-    -   It looks for models in the `models/` directory of the project.
-    -   *Tip: You can symlink your model to the project folder:*
-        ```bash
-        mkdir -p models
-        ln -s /path/to/your/ggml-small.en.bin models/ggml-small.en.bin
-        ```
+---
 
-4.  **Run the app**:
-    ```bash
-    npm start
-    ```
+## The "Smart Polish" Feature (Optional but 🔥)
 
-## Usage
+Want your transcribed text to be grammar-perfect? Install **Ollama** — a tiny local AI that runs on your Mac.
 
-1.  **Start Recording**: Press `Cmd+Shift+V` (or your configured hotkey).
-    -   A floating window will appear near your cursor.
-    -   Speak your text.
-2.  **Stop Recording**: Press the hotkey again.
-    -   The app will process the audio.
-    -   Once complete, it will paste the text into your active window.
-3.  **Cancel**: Press `Escape` during recording to cancel.
+### Setup Ollama
 
-## Configuration
+```bash
+# Install (if you haven't)
+brew install ollama
 
-Click the "Settings" button in the main window (accessible via the Tray icon -> Open) to configure:
--   **Global Hotkey**: Change the shortcut.
--   **Auto-Paste**: Toggle automatic pasting.
--   **Polish with Ollama**: Enable/disable LLM post-processing.
+# Start it (runs in background)
+ollama serve
+
+# Pull our recommended model (397MB, ~0.5s per polish)
+ollama pull qwen2.5:0.5b
+```
+
+That's it! The app automatically connects to Ollama and polishes your text.
+
+### Why qwen2.5:0.5b?
+
+| Model | Size | Speed | Verdict |
+|-------|------|-------|---------|
+| qwen2.5:0.5b | 397MB | ~0.5s | ⭐ **Perfect** |
+| qwen2.5:1.5b | 1GB | ~1s | Good |
+| phi4-mini | 2.5GB | ~9s | Too slow |
+| gemma4 | 7GB | ~15s | Thinking mode = unusable |
+
+If you want to try other models, just run `ollama pull <model-name>` and change it in Settings.
+
+---
+
+## Settings & Config
+
+Click the **Tray Icon** (in menu bar) → **Settings** to customize:
+
+| Option | What It Does |
+|--------|--------------|
+| **Hotkeys** | Change `Cmd+Shift+V` / `Cmd+Shift+O` to whatever you like |
+| **Auto-Paste** | Toggle automatic typing into your active app |
+| **Polish Mode** | Turn AI text fixing on/off |
+| **Ollama URL** | Usually `http://localhost:11434` (don't change unless you know what you're doing) |
+
+---
+
+## Under the Hood
+
+1. **Your Voice** → Recorded via macOS microphone
+2. **Whisper.cpp** → Transcribes locally (no cloud, complete privacy)
+3. **Ollama** (optional) → Fixes grammar/punctuation in ~0.5s
+4. **Auto-Type** → Uses Mac's accessibility APIs to type into your active app
+
+For Vision Mode (`Cmd+Shift+O`):
+1. **Screenshot** → Captured via `screencapture`
+2. **Apple Vision Framework** → Extracts text from screen (native, zero RAM)
+3. **LLM Context** → Uses extracted text to correctly handle UI elements, button names, etc.
+
+---
 
 ## Troubleshooting
 
--   **"Orange Dot" stays on**: This means the microphone handle wasn't released. The app has safeguards for this, but if it happens, quit the app from the tray.
--   **Paste fails**: Ensure the app (or Terminal/VS Code if running in dev) has **Accessibility** permissions in macOS System Settings -> Privacy & Security.
--   **Logs**: Go to Settings -> View Logs to see detailed application logs for debugging.
+### "Whisper not found" or "Library not loaded"
+- Make sure you have `whisper-cli` in your PATH, or use the pre-built DMG which includes it.
 
-## Development
+### Ollama not responding
+- Run `ollama serve` in Terminal
+- Check Settings → Ollama URL is `http://localhost:11434`
+- Run `ollama list` to see available models
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development instructions.
+### Hotkeys not working?
+- Go to **System Settings → Privacy & Security → Accessibility** and enable ASTRA
 
-## Feedback & Support
+### Still stuck?
+- **[Open an issue](https://github.com/amateur-dev/local-hotkey-voice-mac-app/issues)** — we'll help!
 
-If you encounter any bugs, have feature requests, or need assistance, please open an issue on our GitHub repository:
+---
 
--   **Report a Bug**: [Open a new issue](https://github.com/amateur-dev/local-hotkey-voice-mac-app/issues/new?labels=bug)
--   **Request a Feature**: [Open a new issue](https://github.com/amateur-dev/local-hotkey-voice-mac-app/issues/new?labels=enhancement)
+## Build from Source (For Developers)
+
+```bash
+git clone https://github.com/amateur-dev/local-hotkey-voice-mac-app.git
+cd local-hotkey-voice-mac-app
+npm install
+npm start
+```
+
+**Requirements:**
+- Node.js 18+
+- FFmpeg (`brew install ffmpeg`)
+- whisper-cli in PATH
+
+---
+
+## Tech Stack
+
+- **Electron** — Desktop app framework
+- **Whisper.cpp** — Local speech-to-text (OpenAI's Whisper, but faster)
+- **Ollama** — Local LLM with MLX optimization for Apple Silicon (2-4x faster on M1/M2/M3/M4)
+- **Apple Vision Framework** — Native OCR (zero RAM)
+- **Node.js** — Backend magic
+
+---
+
+## Like This? ❤️
+
+- ⭐ **Star the repo** if it made your life easier
+- 🐛 **Report bugs** at [Issues](https://github.com/amateur-dev/local-hotkey-voice-mac-app/issues)
+- 💡 **Suggest features** — we're all ears!
+
+---
 
 ## Author
 
 **Dipesh Sukhani**
--   Website: [dipeshsukhani.dev](https://dipeshsukhani.dev)
--   Email: [me@dipeshsukhani.dev](mailto:me@dipeshsukhani.dev)
--   LinkedIn: [linkedin.com/in/dipeshsukhani](https://linkedin.com/in/dipeshsukhani)
--   Twitter: [@dipesh_sukhani](https://x.com/dipesh_sukhani)
--   GitHub: [@amateur-dev](https://github.com/amateur-dev)
+- 🌐 [dipeshsukhani.dev](https://dipeshsukhani.dev)
+- 📧 [me@dipeshsukhani.dev](mailto:me@dipeshsukhani.dev)
+- 💼 [LinkedIn](https://linkedin.com/in/dipeshsukhani)
+- 🐦 [@dipesh_sukhani](https://x.com/dipesh_sukhani)
+- 🐙 [@amateur-dev](https://github.com/amateur-dev)
 
-## License
+---
 
-MIT
+**MIT License** — Use it, break it, improve it. That's the spirit. 🚀

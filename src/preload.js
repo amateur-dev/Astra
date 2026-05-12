@@ -41,6 +41,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onProcessingProgress: (cb) => ipcRenderer.on('processing-progress', (event, data) => cb(data)),
   onProcessingComplete: (cb) => ipcRenderer.on('processing-complete', () => cb()),
   cancelTranscription: () => ipcRenderer.invoke('cancel-transcription'),
+  // Overlay window specific
+  onOverlayRecordingStarted: (cb) => ipcRenderer.on('recording-started', (event, data) => cb(data)),
+  onOverlayRecordingStopped: (cb) => ipcRenderer.on('recording-stopped', () => cb()),
   // Transcript result window specific
   onTranscriptData: (cb) => ipcRenderer.on('transcript-data', (event, text) => cb(text)),
   closeTranscriptWindow: () => ipcRenderer.invoke('close-transcript-window'),
@@ -54,6 +57,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   downloadDependency: (type, param) => ipcRenderer.invoke('download-dependency', type, param),
   onDownloadProgress: (cb) => ipcRenderer.on('download-progress', (event, data) => cb(data)),
   finishSetup: () => ipcRenderer.invoke('finish-setup'),
+  
+  // Permissions
+  getPermissionsStatus: () => ipcRenderer.invoke('get-permissions-status'),
+  requestMicPermission: () => ipcRenderer.invoke('request-mic-permission'),
+  requestAccessibilityPermission: () => ipcRenderer.invoke('request-accessibility-permission'),
+  openSystemSettings: (pane) => ipcRenderer.invoke('open-system-settings', pane),
+  permissionsDone: () => ipcRenderer.invoke('permissions-done'),
   
   // Model Management
   getAvailableModels: () => ipcRenderer.invoke('get-available-models'),

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Recording Overlay</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: transparent;
+            pointer-events: none;
+        }
+        
+        #border-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            box-sizing: border-box;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            z-index: 9999;
+            pointer-events: none;
+        }
+
+        #border-overlay.active {
+            opacity: 1;
+        }
+
+        /* Create the gradient border using a pseudo-element mask */
+        #border-overlay::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            padding: 8px; /* Border thickness */
+            -webkit-mask: 
+                linear-gradient(#fff 0 0) content-box, 
+                linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+        }
+
+        /* Glowing inset shadows */
+        #border-overlay::after {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            pointer-events: none;
+            box-shadow: inset 0 0 0px transparent;
+            transition: box-shadow 0.3s ease-in-out;
+        }
+
+        /* CONTEXT MODE (Neon Colorful) */
+        #border-overlay.with-context::before {
+            background: linear-gradient(135deg, oklch(75% 0.15 220), oklch(65% 0.25 300));
+        }
+        #border-overlay.with-context::after {
+            box-shadow: inset 0 0 50px rgba(117, 239, 255, 0.4);
+        }
+
+        /* NO CONTEXT MODE (Blue/Cyan) */
+        #border-overlay.no-context::before {
+            background: linear-gradient(135deg, oklch(75% 0.15 220), oklch(70% 0.15 220));
+        }
+        #border-overlay.no-context::after {
+            box-shadow: inset 0 0 50px rgba(117, 239, 255, 0.3);
+        }
+
+        /* Pulsing animation */
+        @keyframes pulse {
+            0% { opacity: 0.5; }
+            50% { opacity: 1; }
+            100% { opacity: 0.5; }
+        }
+        
+        #border-overlay.active {
+            animation: pulse 1.5s infinite ease-in-out;
+        }
+
+    </style>
+</head>
+<body>
+    <div id="border-overlay"></div>
+
+    <script>
+        const borderOverlay = document.getElementById('border-overlay');
+
+        window.electronAPI.onOverlayRecordingStarted((data) => {
+            console.log('Recording started', data);
+            borderOverlay.classList.remove('no-context', 'with-context');
+            if (data.hasContext) {
+                borderOverlay.classList.add('with-context');
+            } else {
+                borderOverlay.classList.add('no-context');
+            }
+            borderOverlay.classList.add('active');
+        });
+
+        window.electronAPI.onOverlayRecordingStopped(() => {
+            console.log('Recording stopped');
+            borderOverlay.classList.remove('active');
+        });
+    </script>
+</body>
+</html>

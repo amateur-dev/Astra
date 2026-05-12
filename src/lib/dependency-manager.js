@@ -14,6 +14,7 @@ const MODELS = {
     url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin',
     filename: 'ggml-tiny.en.bin',
     size: '75 MB',
+    minBytes: 70000000,
     ram: '~390 MB',
     desc: 'Fastest, lower accuracy'
   },
@@ -21,6 +22,7 @@ const MODELS = {
     url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin',
     filename: 'ggml-base.en.bin',
     size: '142 MB',
+    minBytes: 130000000,
     ram: '~500 MB',
     desc: 'Balanced speed/accuracy'
   },
@@ -28,6 +30,7 @@ const MODELS = {
     url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin',
     filename: 'ggml-small.en.bin',
     size: '466 MB',
+    minBytes: 450000000,
     ram: '~1.0 GB',
     desc: 'Good accuracy, slower (Recommended)'
   },
@@ -35,6 +38,7 @@ const MODELS = {
     url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin',
     filename: 'ggml-medium.en.bin',
     size: '1.5 GB',
+    minBytes: 1400000000,
     ram: '~2.6 GB',
     desc: 'High accuracy, slow'
   }
@@ -90,8 +94,16 @@ async function checkDependencies() {
 
   // Check Models
   for (const [key, info] of Object.entries(MODELS)) {
-    if (fs.existsSync(path.join(MODELS_DIR, info.filename))) {
-      status.models[info.filename] = true; // Use filename as key to match getAvailableModels
+    const modelPath = getModelPath(info.filename);
+    if (fs.existsSync(modelPath)) {
+      const stats = fs.statSync(modelPath);
+      if (info.minBytes && stats.size < info.minBytes) {
+        logger.warn(`Model ${info.filename} found but is corrupted or incomplete (${stats.size} bytes). Deleting it.`);
+        try { fs.unlinkSync(modelPath); } catch (e) {}
+        status.models[info.filename] = false;
+      } else {
+        status.models[info.filename] = true; // Use filename as key to match getAvailableModels
+      }
     } else {
       status.models[info.filename] = false;
     }
@@ -102,16 +114,19 @@ async function checkDependencies() {
 
 function downloadFile(url, destPath, onProgress) {
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destPath);
+    const tempPath = destPath + '.tmp';
+    const file = fs.createWriteStream(tempPath);
     const request = https.get(url, (response) => {
       if (response.statusCode === 302 || response.statusCode === 301) {
         // Handle relative redirects
+        file.close();
         const newUrl = new URL(response.headers.location, url).toString();
         downloadFile(newUrl, destPath, onProgress).then(resolve).catch(reject);
         return;
       }
       
       if (response.statusCode !== 200) {
+        file.close();
         reject(new Error(`Failed to download: ${response.statusCode}`));
         return;
       }
@@ -128,13 +143,21 @@ function downloadFile(url, destPath, onProgress) {
       });
 
       response.on('end', () => {
-        file.end();
-        resolve();
+        file.end(() => {
+          // Rename temp file to actual file on success
+          try {
+            fs.renameSync(tempPath, destPath);
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        });
       });
     });
 
     request.on('error', (err) => {
-      fs.unlink(destPath, () => {});
+      file.close();
+      fs.unlink(tempPath, () => {});
       reject(err);
     });
   });
@@ -206,5 +229,11 @@ module.exports = {
   installFFmpeg,
   installWhisper,
   downloadModel,
+  installPiper: async () => {
+    logger.info('installPiper placeholder called (not implemented in dependency manager yet)');
+  },
+  installVoiceModel: async () => {
+    logger.info('installVoiceModel placeholder called (not implemented in dependency manager yet)');
+  },
   MODELS
 };

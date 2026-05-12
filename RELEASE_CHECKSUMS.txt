@@ -1,0 +1,6 @@
+SHA256 checksums for release artifacts.
+
+Version 2.0.0
+
+4de6bdd578332c24bc0346b9c59da878b6017bf5e1300452329eba7359052f4b  ASTRA-2.0.0-arm64.dmg
+9b5d8360de4c404c4348bffbe870cc5da0a21f095195202d6a3025eb4ef28318  ASTRA-2.0.0.dmg

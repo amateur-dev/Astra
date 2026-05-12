@@ -5,332 +5,229 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Recording...</title>
   <style>
+    :root {
+      --accent-cyan: oklch(75% 0.15 220);
+      --accent-purple: oklch(65% 0.25 300);
+      --fg-primary: oklch(98% 0.005 250);
+      --fg-dim: oklch(78% 0.02 250);
+      --border-light: rgba(255, 255, 255, 0.2);
+      --border-dim: rgba(255, 255, 255, 0.12);
+      --font-body: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    }
+
     * {
+      box-sizing: border-box;
       margin: 0;
       padding: 0;
-      box-sizing: border-box;
     }
     
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      background: rgba(255, 255, 255, 0.95);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      font-family: var(--font-body);
+      background: transparent;
+      color: var(--fg-primary);
       overflow: hidden;
       user-select: none;
       -webkit-user-select: none;
       -webkit-app-region: drag;
-      width: 320px;
-      height: 160px;
-    }
-    
-    .container {
-      padding: 12px 16px;
       display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 8px;
-      height: 100%;
-    }
-    
-    /* Recording State */
-    .recording-mode {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 8px;
-      width: 100%;
-    }
-    
-    .header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    
-    .logo {
-      width: 24px;
-      height: 24px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
       justify-content: center;
-      position: relative;
+      align-items: center;
+      height: 100vh;
+      -webkit-font-smoothing: antialiased;
     }
     
-    .logo::before {
-      content: '';
-      width: 0;
-      height: 0;
-      border-left: 8px solid transparent;
-      border-right: 8px solid transparent;
-      border-bottom: 13px solid white;
-      transform: rotate(180deg);
-    }
-    
-    .recording-indicator {
-      width: 8px;
-      height: 8px;
-      background: #ff3b30;
-      border-radius: 50%;
-      position: absolute;
-      top: -1px;
-      right: -1px;
-      animation: pulse 1.5s ease-in-out infinite;
-    }
-    
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.6; transform: scale(1.1); }
-    }
-    
-    .timer {
-      font-size: 20px;
-      font-weight: 600;
-      color: #1d1d1f;
-      font-variant-numeric: tabular-nums;
-      letter-spacing: 0.5px;
-    }
-    
-    .waveform-container {
+    /* The "Island" */
+    .island {
+      padding: 12px 16px 12px 12px;
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
       width: 100%;
-      height: 60px;
-      background: #f5f5f7;
-      border-radius: 8px;
-      padding: 6px;
+      height: 100%;
+      border: 1px solid var(--border-light);
       position: relative;
       overflow: hidden;
+      background: #111827;
+      box-shadow: 0 18px 42px rgba(0, 0, 0, 0.35);
     }
-    
-    #waveform {
-      width: 100%;
-      height: 100%;
-      display: block;
+
+    /* Animated Border Glow around Island */
+    .island::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 24px;
+      padding: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      opacity: 0.85;
+      animation: scan 3s linear infinite;
+      pointer-events: none;
     }
-    
-    .shortcuts {
-      display: flex;
-      gap: 12px;
-      font-size: 11px;
-      color: #86868b;
+    @keyframes scan {
+      0% { background-position: -400px 0; }
+      100% { background-position: 400px 0; }
     }
-    
-    .shortcut {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    
-    .key {
-      background: #fff;
-      border: 1px solid #d2d2d7;
-      border-radius: 4px;
-      padding: 2px 6px;
-      font-size: 11px;
-      font-weight: 500;
-      color: #1d1d1f;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    }
-    
-    /* Processing State */
-    .processing-mode {
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      gap: 12px;
-      width: 100%;
-      padding: 20px 0;
-    }
-    
-    .spinner {
-      width: 40px;
-      height: 40px;
+
+    /* The "Alive" AI Orb */
+    .ai-orb-wrapper {
       position: relative;
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
+    }
+    .ai-orb {
+      position: absolute;
+      inset: 2px;
+      border-radius: 50%;
+      background: conic-gradient(from 0deg, var(--accent-cyan), var(--accent-purple), var(--accent-cyan));
+      animation: spin 3s linear infinite;
+      filter: blur(2px);
+      opacity: 0.95;
+    }
+    .ai-orb-core {
+      position: absolute;
+      inset: 6px;
+      background: #f8fafc;
+      border-radius: 50%;
+      box-shadow: 0 0 10px #fff;
+    }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+
+    .island-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .island-top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2px;
+    }
+    .island-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent-cyan);
+    }
+    .island-model {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--fg-dim);
+      background: var(--border-dim);
+      padding: 2px 6px;
+      border-radius: 4px;
     }
     
+    .island-transcription {
+      font-size: 15px;
+      font-weight: 400;
+      color: var(--fg-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: flex;
+      align-items: center;
+    }
+    
+    /* Typing cursor effect */
+    .typing-cursor {
+      display: inline-block;
+      width: 2px; height: 15px;
+      background: var(--accent-cyan);
+      vertical-align: middle;
+      margin-left: 2px;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* Processing State (replaces AI Orb) */
+    .spinner {
+      width: 32px;
+      height: 32px;
+      position: relative;
+      flex-shrink: 0;
+      display: none;
+    }
     .spinner-circle {
       width: 100%;
       height: 100%;
       border-radius: 50%;
-      border: 4px solid rgba(102, 126, 234, 0.15);
-      border-top-color: #667eea;
-      animation: spin 1s linear infinite;
+      border: 3px solid rgba(117, 239, 255, 0.15);
+      border-top-color: var(--accent-cyan);
+      animation: spin-fast 1s linear infinite;
     }
-    
-    @keyframes spin {
+    @keyframes spin-fast {
       to { transform: rotate(360deg); }
     }
     
-    .status-text {
-      font-size: 14px;
-      font-weight: 500;
-      color: #1d1d1f;
-    }
-    
-    .sub-status {
-      font-size: 11px;
-      color: #86868b;
-    }
-    
-    .audio-level-bar {
-      height: 100%;
-      background: linear-gradient(90deg, #34c759 0%, #30d158 100%);
-      border-radius: 2px;
-      transition: width 0.1s ease-out;
-      width: 0%;
+    #copilotBadge {
+      display: none;
+      font-size: 9px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+      color: #fff;
+      padding: 1px 4px;
+      border-radius: 3px;
+      margin-left: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <!-- Recording Mode -->
-    <div class="recording-mode" id="recordingMode">
-      <div class="header">
-        <div class="logo">
-          <div class="recording-indicator"></div>
-        </div>
-        <div class="timer" id="timer">00:00</div>
-      </div>
-      
-      <div class="waveform-container">
-        <canvas id="waveform"></canvas>
-      </div>
-      
-      <div class="shortcuts">
-        <div class="shortcut">
-          <span class="key">⌘</span><span class="key">⇧</span><span class="key">V</span>
-          <span>Stop</span>
-        </div>
-        <div class="shortcut">
-          <span class="key">Esc</span>
-          <span>Cancel</span>
-        </div>
-      </div>
+  <div class="island" id="island">
+    
+    <!-- Recording Mode Orb -->
+    <div class="ai-orb-wrapper" id="orbWrapper">
+      <div class="ai-orb"></div>
+      <div class="ai-orb-core"></div>
     </div>
     
-    <!-- Processing Mode -->
-    <div class="processing-mode" id="processingMode">
-      <div class="spinner">
-        <div class="spinner-circle"></div>
-      </div>
-      <div class="status-text" id="statusText">Transcribing</div>
-      <div class="sub-status" id="subStatus">Please wait...</div>
+    <!-- Processing Mode Spinner -->
+    <div class="spinner" id="spinner">
+      <div class="spinner-circle"></div>
     </div>
-  </div>
     
-    <div class="status" id="status">Recording...</div>
-    
-    <div class="shortcuts">
-      <div class="shortcut">
-        <span class="key">⌘</span>
-        <span class="key">⇧</span>
-        <span class="key">V</span>
-        <span>Stop</span>
+    <div class="island-content">
+      <div class="island-top-row">
+        <div style="display: flex; align-items: center;">
+          <span class="island-label" id="statusLabel">Listening</span>
+          <span id="copilotBadge">Vision</span>
+        </div>
+        <span class="island-model" id="timer">00:00</span>
       </div>
-      <div class="shortcut">
-        <span class="key">Esc</span>
-        <span>Cancel</span>
+      <div class="island-transcription">
+        <span id="liveTranscript">Speak now...</span><span class="typing-cursor" id="cursor"></span>
       </div>
     </div>
   </div>
-  
+
   <script>
-    const canvas = document.getElementById('waveform');
-    const ctx = canvas.getContext('2d');
     const timerEl = document.getElementById('timer');
-    const statusEl = document.getElementById('status');
-    const audioLevelBar = document.getElementById('audioLevelBar');
+    const statusLabel = document.getElementById('statusLabel');
+    const liveTranscript = document.getElementById('liveTranscript');
+    const orbWrapper = document.getElementById('orbWrapper');
+    const spinner = document.getElementById('spinner');
+    const copilotBadge = document.getElementById('copilotBadge');
+    const cursor = document.getElementById('cursor');
+    const island = document.getElementById('island');
     
     let startTime = null;
     let timerInterval = null;
-    let animationId = null;
-    let audioContext = null;
-    let analyser = null;
-    let dataArray = null;
     let activeStream = null;
     let isStarting = false;
-    
-    // Set canvas resolution
-    function resizeCanvas() {
-      const dpr = window.devicePixelRatio || 1;
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      ctx.scale(dpr, dpr);
-    }
-    
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-    
-    // Initialize audio visualization
-    async function initAudioVisualization(stream) {
-      try {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        analyser = audioContext.createAnalyser();
-        analyser.fftSize = 2048;
-        analyser.smoothingTimeConstant = 0.8;
-        
-        const source = audioContext.createMediaStreamSource(stream);
-        source.connect(analyser);
-        
-        const bufferLength = analyser.frequencyBinCount;
-        dataArray = new Uint8Array(bufferLength);
-        
-        drawWaveform();
-      } catch (e) {
-        console.error('Failed to initialize audio visualization:', e);
-      }
-    }
-    
-    // Draw waveform visualization
-    function drawWaveform() {
-      if (!analyser || !dataArray) return;
-      
-      animationId = requestAnimationFrame(drawWaveform);
-      
-      analyser.getByteTimeDomainData(dataArray);
-      
-      const width = canvas.getBoundingClientRect().width;
-      const height = canvas.getBoundingClientRect().height;
-      
-      // Clear canvas
-      ctx.fillStyle = '#f5f5f7';
-      ctx.fillRect(0, 0, width, height);
-      
-      // Draw waveform
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#667eea';
-      ctx.beginPath();
-      
-      const sliceWidth = width / dataArray.length;
-      let x = 0;
-      
-      // Calculate audio level for level meter
-      let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        const v = dataArray[i] / 128.0;
-        const y = (v * height) / 2;
-        
-        sum += Math.abs(v - 1.0);
-        
-        if (i === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-        
-        x += sliceWidth;
-      }
-      
-      ctx.lineTo(width, height / 2);
-      ctx.stroke();
-      
-      // Update audio level meter
-      const avgLevel = sum / dataArray.length;
-      const levelPercent = Math.min(100, avgLevel * 200);
-      audioLevelBar.style.width = levelPercent + '%';
-    }
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let lastInferenceTime = 0;
+    let isProcessingStreaming = false;
     
     // Update timer
     function updateTimer() {
@@ -346,57 +243,117 @@
     }
     
     // Start recording UI
-    async function startRecording(stream) {
-      // Prevent concurrent start calls
+    async function startRecording(data) {
       if (isStarting) return;
       isStarting = true;
 
       try {
+        const isCopilot = data && data.isCopilot;
+        copilotBadge.style.display = isCopilot ? 'inline-block' : 'none';
+
+        liveTranscript.textContent = 'Speak now...';
+        liveTranscript.style.fontStyle = 'italic';
+        liveTranscript.style.color = 'var(--fg-dim)';
+        
+        statusLabel.textContent = 'Listening';
+        statusLabel.style.color = 'var(--accent-cyan)';
+        
+        orbWrapper.style.display = 'block';
+        spinner.style.display = 'none';
+        cursor.style.display = 'inline-block';
+        
+        // Reset border animation
+        island.style.setProperty('--accent-cyan', 'oklch(75% 0.15 220)');
+
         // Ensure any previous stream is stopped before starting a new one
         if (activeStream) {
           activeStream.getTracks().forEach(track => {
-            try { track.stop(); } catch (e) { console.error('Error stopping previous track:', e); }
+            try { track.stop(); } catch (e) {}
           });
           activeStream = null;
         }
 
-        // Show recording mode
-        document.getElementById('recordingMode').style.display = 'flex';
-        document.getElementById('processingMode').style.display = 'none';
-        
         startTime = Date.now();
         timerInterval = setInterval(updateTimer, 1000);
         
-        // Get audio stream for waveform visualization
-        if (stream) {
-          activeStream = stream;
-        } else {
-          activeStream = await navigator.mediaDevices.getUserMedia({ 
-            audio: { 
-              sampleRate: 48000, 
-              channelCount: 1, 
-              noiseSuppression: false, 
-              echoCancellation: false, 
-              autoGainControl: false 
-            } 
-          });
-        }
-        initAudioVisualization(activeStream);
+        // Get audio stream just to keep mic active and grab chunks for streaming
+        activeStream = await navigator.mediaDevices.getUserMedia({ 
+          audio: { 
+            sampleRate: 48000, 
+            channelCount: 1, 
+            noiseSuppression: false, 
+            echoCancellation: false, 
+            autoGainControl: false 
+          } 
+        });
+
+        // Setup real-time streaming
+        audioChunks = [];
+        lastInferenceTime = Date.now();
+        mediaRecorder = new MediaRecorder(activeStream, { mimeType: 'audio/webm' });
+        mediaRecorder.ondataavailable = async (event) => {
+          if (event.data.size > 0) {
+            audioChunks.push(event.data);
+            const now = Date.now();
+            // Try inference every 2.5 seconds
+            if (now - lastInferenceTime > 2500 && !isProcessingStreaming) {
+              lastInferenceTime = now;
+              await sendForStreamingInference();
+            }
+          }
+        };
+        mediaRecorder.start(500); // Request data every 500ms
       } catch (e) {
-        console.error('Failed to get audio stream for visualization:', e);
-        // Continue without waveform if mic access fails
+        console.error('Failed to get audio stream:', e);
       } finally {
         isStarting = false;
+      }
+    }
+
+    async function sendForStreamingInference() {
+      if (!audioChunks.length || isProcessingStreaming) return;
+      
+      try {
+        isProcessingStreaming = true;
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        const arrayBuffer = await blob.arrayBuffer();
+        const uint8 = new Uint8Array(arrayBuffer);
+        
+        if (window.electronAPI && window.electronAPI.getStreamingTranscript) {
+          const result = await window.electronAPI.getStreamingTranscript(uint8);
+          if (result && result.ok && result.text) {
+            if (liveTranscript) {
+              liveTranscript.textContent = `"${result.text.trim()}`;
+              liveTranscript.style.fontStyle = 'normal';
+              liveTranscript.style.color = 'var(--fg-primary)';
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Streaming inference error:', e);
+      } finally {
+        isProcessingStreaming = false;
       }
     }
     
     // Switch to processing mode
     function showProcessing() {
-      document.getElementById('recordingMode').style.display = 'none';
-      document.getElementById('processingMode').style.display = 'flex';
-      
       // Stop recording UI elements
       stopRecording();
+      
+      orbWrapper.style.display = 'none';
+      spinner.style.display = 'block';
+      cursor.style.display = 'none';
+      
+      statusLabel.textContent = 'Transcribing';
+      statusLabel.style.color = 'var(--accent-purple)';
+      
+      if (liveTranscript.textContent === 'Speak now...') {
+        liveTranscript.textContent = 'Processing audio...';
+      }
+      
+      // Change border scan color
+      island.style.setProperty('--accent-cyan', 'var(--accent-purple)');
     }
     
     // Stop recording UI
@@ -406,20 +363,13 @@
         timerInterval = null;
       }
       
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-        animationId = null;
-      }
-      
-      if (audioContext) {
-        audioContext.close();
-        audioContext = null;
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
       }
 
-      // Stop all media tracks to release microphone (removes orange dot)
       if (activeStream) {
         activeStream.getTracks().forEach(track => {
-          try { track.stop(); } catch (e) { console.error('Error stopping track:', e); }
+          try { track.stop(); } catch (e) {}
         });
         activeStream = null;
       }
@@ -428,8 +378,8 @@
     // Listen for IPC messages from main process
     if (window.electronAPI) {
       if (window.electronAPI.onRecordingStart) {
-        window.electronAPI.onRecordingStart((stream) => {
-          startRecording(stream);
+        window.electronAPI.onRecordingStart((data) => {
+          startRecording(data);
         });
       }
       
