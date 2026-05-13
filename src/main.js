@@ -564,29 +564,17 @@ async function captureScreen() {
 }
 
 async function captureSelectedText() {
-  const accessibilityScript = `
-    tell application "System Events"
-      set frontApp to first application process whose frontmost is true
-      set frontAppName to name of frontApp
-      try
-        set focusedElement to value of attribute "AXFocusedUIElement" of frontApp
-        set selectedText to value of attribute "AXSelectedText" of focusedElement
-        if selectedText is not missing value and selectedText is not "" then
-          return frontAppName & "\n" & selectedText
-        end if
-      end try
-      return frontAppName & "\n"
-    end tell
-  `;
+  // Use single-line AppleScript to avoid JSON.stringify escaping issues
+  // that cause "unknown token" syntax errors with osascript -e
+  // This script tries to get selected text directly via Accessibility API
+  const accessibilityScript = 'tell application "System Events" to get value of attribute "AXSelectedText" of (first application process whose frontmost is true)';
 
   try {
     const directText = await new Promise((resolve) => {
       exec(`osascript -e ${JSON.stringify(accessibilityScript)}`, (err, stdout) => {
-        if (err) return resolve(null);
-        const output = (stdout || '').toString();
-        const newlineIndex = output.indexOf('\n');
-        const text = newlineIndex >= 0 ? output.slice(newlineIndex + 1).trim() : '';
-        resolve(text || null);
+        // If error or empty output, return null to trigger fallback
+        if (err || !stdout || stdout.toString().trim() === '') return resolve(null);
+        resolve(stdout.toString().trim());
       });
     });
 
@@ -597,16 +585,8 @@ async function captureSelectedText() {
     console.warn('[INFO] Direct selected-text capture failed, falling back to Cmd+C:', err.message || err);
   }
 
-  const script = `
-    tell application "System Events"
-      set frontApp to first application process whose frontmost is true
-      set frontAppName to name of frontApp
-      tell process frontAppName
-        keystroke "c" using {command down}
-      end tell
-      return frontAppName
-    end tell
-  `;
+  // Single-line AppleScript for Cmd+C fallback - avoids syntax errors from JSON.stringify
+  const script = 'tell application "System Events" to tell (first application process whose frontmost is true) to keystroke "c" using command down';
   
   clipboard.clear();
   
