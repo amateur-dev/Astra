@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.1] - 2026-05-13
+
+### Fixed
+- **AppleScript Syntax Error**: Fixed "unknown token" syntax error when capturing selected text. The multiline template literals with `\n` characters were causing osascript to fail. Changed to single-line AppleScript commands that work properly with `osascript -e`.
+
 ## [1.0.0] - 2025-11-20
 
 ### Added
